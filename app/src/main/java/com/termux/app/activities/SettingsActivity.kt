@@ -56,6 +56,7 @@ import com.newtermux.compose.MenuItemDivider
 import com.newtermux.compose.NewTermuxComposeTheme
 import com.newtermux.compose.outlinedMenuCard
 import com.newtermux.features.NewTermuxSettings
+import com.newtermux.features.NewTermuxUpdater
 import com.newtermux.features.TextExpansionStore
 import com.termux.app.TermuxActivity
 import com.termux.shared.android.PermissionUtils
@@ -267,6 +268,7 @@ private fun RootScreen(activity: Activity, onBack: () -> Unit, onNav: (Route) ->
             NavRow("Package Manager", "Browse, search and install packages") { launch(PackageManagerActivity::class.java) }
             NavRow("SSH Manager", "Save and connect to multiple SSH servers") { launch(SshManagerActivity::class.java) }
             NavRow("File Manager", "Browse, edit, and manage files in your Termux home") { launch(FileManagerActivity::class.java) }
+            NavRow("Check for Updates", "Download and install new versions") { NewTermuxUpdater.checkNow(activity) }
             HorizontalDivider()
             NavRow("Backup & Restore", "Back up or restore your Termux environment") { onNav(Route.BACKUP) }
             NavRow("Features", "Toggle NewTermux features on or off") { onNav(Route.FEATURES) }
@@ -318,6 +320,7 @@ private fun FeaturesScreen(activity: Activity, onBack: () -> Unit) {
             NtSwitch(context, NewTermuxSettings.KEY_SESSION_RENAME_ENABLED, "Session Renaming", "Long-press a session tab to rename it")
 
             CategoryHeader("Startup")
+            NtSwitch(context, NewTermuxSettings.KEY_AUTO_UPDATE_CHECK, "Auto-Check for Updates", "Check GitHub releases once a day on startup")
             NtSwitch(context, NewTermuxSettings.KEY_STARTUP_SCRIPT_ENABLED, "Startup Script", "Run ~/.termux/startup-script.sh in each new session")
             NavRow("Edit Startup Script", "Edit ~/.termux/startup-script.sh") { showScriptEditor = true }
 

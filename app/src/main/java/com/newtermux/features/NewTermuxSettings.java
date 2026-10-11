@@ -27,6 +27,8 @@ public class NewTermuxSettings {
     public static final String KEY_EXTRA_KEYS_IN_DRAWER      = "extra_keys_in_drawer";
     public static final String KEY_KEEP_ALIVE_BACKGROUND     = "keep_alive_background";
     public static final String KEY_TAP_KEYBOARD_WITH_MOUSE   = "tap_keyboard_with_mouse";
+    public static final String KEY_AUTO_UPDATE_CHECK         = "auto_update_check";
+    public static final String KEY_LAST_UPDATE_CHECK         = "last_update_check";
     // Internal one-time gate: set once we have shown the battery-optimization nudge.
     public static final String KEY_BATTERY_OPT_PROMPTED      = "battery_opt_prompted";
 
@@ -61,6 +63,18 @@ public class NewTermuxSettings {
     }
     public static boolean isTapKeyboardWithMouseTracking(Context ctx) {
         return prefs(ctx).getBoolean(KEY_TAP_KEYBOARD_WITH_MOUSE, true);
+    }
+    public static boolean isAutoUpdateCheck(Context ctx) {
+        return prefs(ctx).getBoolean(KEY_AUTO_UPDATE_CHECK, true);
+    }
+    public static void setAutoUpdateCheck(Context ctx, boolean v) {
+        prefs(ctx).edit().putBoolean(KEY_AUTO_UPDATE_CHECK, v).apply();
+    }
+    public static long getLastUpdateCheck(Context ctx) {
+        return prefs(ctx).getLong(KEY_LAST_UPDATE_CHECK, 0);
+    }
+    public static void setLastUpdateCheck(Context ctx, long v) {
+        prefs(ctx).edit().putLong(KEY_LAST_UPDATE_CHECK, v).apply();
     }
     public static void setTapKeyboardWithMouseTracking(Context ctx, boolean v) {
         prefs(ctx).edit().putBoolean(KEY_TAP_KEYBOARD_WITH_MOUSE, v).apply();
@@ -139,6 +153,7 @@ public class NewTermuxSettings {
             case KEY_SHOW_CLEAR_BUTTON:    return isShowClearButton(ctx);
             case KEY_ZSH_PLUGINS:                  return isZshPluginsEnabled(ctx);
             case KEY_TAP_KEYBOARD_WITH_MOUSE:      return isTapKeyboardWithMouseTracking(ctx);
+            case KEY_AUTO_UPDATE_CHECK:            return isAutoUpdateCheck(ctx);
             case KEY_SESSION_TABS:                 return isSessionTabsEnabled(ctx);
             case KEY_AUTOCORRECT:                  return isAutocorrectEnabled(ctx);
             case KEY_SHOW_DRAWER_EXPORT_SCRIPT:    return isShowDrawerExportScript(ctx);
