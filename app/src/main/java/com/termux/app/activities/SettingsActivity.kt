@@ -300,6 +300,7 @@ private fun FeaturesScreen(activity: Activity, onBack: () -> Unit) {
         Column(modifier = mod) {
             CategoryHeader("Keyboard")
             NtSwitch(context, NewTermuxSettings.KEY_KEYBOARD_SUGGESTIONS, "Keyboard Suggestions", "Show autocorrect and word suggestions bar")
+            NtSwitch(context, NewTermuxSettings.KEY_TAP_KEYBOARD_WITH_MOUSE, "Tap Shows Keyboard", "Tapping the terminal opens the keyboard even when an app uses mouse mode (pi, vim, htop)")
             NtSwitch(context, NewTermuxSettings.KEY_AUTOCORRECT, "Command Autocorrect", "Suggest corrections for mistyped commands (spacebar)")
             NtSwitch(context, NewTermuxSettings.KEY_URL_DETECTION_ENABLED, "URL Detection", "Long-press a URL in the terminal to open or copy it")
             NtSwitch(context, NewTermuxSettings.KEY_EXTRA_KEYS_VISIBLE, "Show Extra Keys Toolbar", "Show the ESC, TAB, arrow key row above the keyboard")
