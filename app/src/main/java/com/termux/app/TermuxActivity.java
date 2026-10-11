@@ -78,6 +78,7 @@ import android.content.pm.PackageManager;
 
 import com.newtermux.features.AutoCorrectHandler;
 import com.newtermux.features.NewTermuxSettings;
+import com.newtermux.features.NewTermuxUpdater;
 import com.newtermux.features.NewTermuxTheme;
 import com.newtermux.features.RootToggleManager;
 import com.newtermux.features.SpeechInputManager;
@@ -373,6 +374,9 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         if (mIsInvalidState) return;
 
         mIsVisible = true;
+
+        // Nosso: checagem silenciosa de update 1x/dia (só avisa se houver versão nova).
+        NewTermuxUpdater.checkOnStartupIfEnabled(this);
 
         if (mTermuxTerminalSessionActivityClient != null)
             mTermuxTerminalSessionActivityClient.onStart();
