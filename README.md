@@ -1,12 +1,12 @@
 # NewTermux
 
-[![Latest release](https://img.shields.io/github/v/release/The412Banner/NewTermux?label=release)](https://github.com/The412Banner/NewTermux/releases/latest)
+[![Latest release](https://img.shields.io/github/v/release/Dantesousa/NewTermux?label=release)](https://github.com/Dantesousa/NewTermux/releases/latest)
 [![Android 7+](https://img.shields.io/badge/Android-7.0%2B-3DDC84?logo=android&logoColor=white)](#installation)
 [![License: GPLv3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE.md)
 
 A personal fork of [Termux](https://termux.dev) with a modernized **Jetpack Compose** interface and an extended feature set — accent theming, terminal color themes, and built-in package, file and SSH managers. It installs under the `com.termux` package, so it's a **drop-in replacement** for stock Termux and stays fully compatible with the entire [Termux package ecosystem](https://github.com/termux/termux-packages).
 
-> **Latest stable:** `v1.6.0` — [**Download the APK →**](https://github.com/The412Banner/NewTermux/releases/latest)
+> **Latest stable:** `v1.6.0` — [**Download the APK →**](https://github.com/Dantesousa/NewTermux/releases/latest)
 
 ---
 
@@ -16,7 +16,6 @@ A personal fork of [Termux](https://termux.dev) with a modernized **Jetpack Comp
 - [Installation](#installation)
 - [Building from source](#building-from-source)
 - [Credits & license](#credits--license)
-- [Community](#community)
 
 ---
 
@@ -57,7 +56,7 @@ A personal fork of [Termux](https://termux.dev) with a modernized **Jetpack Comp
 
 **Requires Android 7.0+.** NewTermux installs as `com.termux`, so **uninstall any existing Termux app and its plugins first** (mixing sources fails with a signature error).
 
-Download the APK for your device from the [**latest release**](https://github.com/The412Banner/NewTermux/releases/latest):
+Download the APK for your device from the [**latest release**](https://github.com/Dantesousa/NewTermux/releases/latest):
 
 | APK | For |
 |-----|-----|
@@ -78,7 +77,7 @@ The `newtermux-test-coexist_*.apk` build installs as a **separate** app (`com.te
 Requires **JDK 17** and the Android SDK.
 
 ```bash
-git clone https://github.com/The412Banner/NewTermux.git
+git clone https://github.com/Dantesousa/NewTermux.git
 cd NewTermux
 
 # Main app (installs as com.termux)
@@ -97,9 +96,3 @@ Built APKs are written to `app/build/outputs/apk/`.
 NewTermux is a fork of the [**Termux**](https://github.com/termux/termux-app) app by the Termux community. All credit for the terminal engine and Linux environment belongs upstream; for the packages installable inside the app, see [termux/termux-packages](https://github.com/termux/termux-packages).
 
 Licensed under the **GNU GPLv3** (same as upstream Termux). See [LICENSE.md](LICENSE.md).
-
----
-
-## Community
-
-- ☕ Support development on [Ko-fi](https://ko-fi.com/the412banner)
