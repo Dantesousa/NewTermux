@@ -16,6 +16,7 @@ import android.view.View;
 import android.widget.EditText;
 import android.widget.ListView;
 import android.widget.Toast;
+import com.newtermux.features.NewTermuxSettings;
 
 import com.termux.R;
 import com.termux.app.TermuxActivity;
@@ -201,7 +202,11 @@ public class TermuxTerminalViewClient extends TermuxTerminalViewClientBase {
             }
         }
 
-        if (!term.isMouseTrackingActive() && !e.isFromSource(InputDevice.SOURCE_MOUSE)) {
+        // Nosso: toque abre o teclado mesmo com mouse tracking ativo (ex.: pi, vim, htop),
+        // se a setting estiver ligada. Sem isso o teclado nunca aparece nesses apps.
+        boolean tapShowsKeyboard = !term.isMouseTrackingActive()
+            || NewTermuxSettings.isTapKeyboardWithMouseTracking(mActivity);
+        if (tapShowsKeyboard && !e.isFromSource(InputDevice.SOURCE_MOUSE)) {
             if (!KeyboardUtils.areDisableSoftKeyboardFlagsSet(mActivity))
                 KeyboardUtils.showSoftKeyboard(mActivity, mActivity.getTerminalView());
             else

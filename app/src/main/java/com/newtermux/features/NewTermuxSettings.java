@@ -26,6 +26,7 @@ public class NewTermuxSettings {
     public static final String KEY_EXTRA_KEYS_VISIBLE        = "extra_keys_visible";
     public static final String KEY_EXTRA_KEYS_IN_DRAWER      = "extra_keys_in_drawer";
     public static final String KEY_KEEP_ALIVE_BACKGROUND     = "keep_alive_background";
+    public static final String KEY_TAP_KEYBOARD_WITH_MOUSE   = "tap_keyboard_with_mouse";
     // Internal one-time gate: set once we have shown the battery-optimization nudge.
     public static final String KEY_BATTERY_OPT_PROMPTED      = "battery_opt_prompted";
 
@@ -57,6 +58,12 @@ public class NewTermuxSettings {
     }
     public static boolean isZshPluginsEnabled(Context ctx) {
         return prefs(ctx).getBoolean(KEY_ZSH_PLUGINS, false);
+    }
+    public static boolean isTapKeyboardWithMouseTracking(Context ctx) {
+        return prefs(ctx).getBoolean(KEY_TAP_KEYBOARD_WITH_MOUSE, true);
+    }
+    public static void setTapKeyboardWithMouseTracking(Context ctx, boolean v) {
+        prefs(ctx).edit().putBoolean(KEY_TAP_KEYBOARD_WITH_MOUSE, v).apply();
     }
     public static boolean isSessionTabsEnabled(Context ctx) {
         return prefs(ctx).getBoolean(KEY_SESSION_TABS, true);
@@ -131,6 +138,7 @@ public class NewTermuxSettings {
             case KEY_SHOW_PACKAGES_BUTTON: return isShowPackagesButton(ctx);
             case KEY_SHOW_CLEAR_BUTTON:    return isShowClearButton(ctx);
             case KEY_ZSH_PLUGINS:                  return isZshPluginsEnabled(ctx);
+            case KEY_TAP_KEYBOARD_WITH_MOUSE:      return isTapKeyboardWithMouseTracking(ctx);
             case KEY_SESSION_TABS:                 return isSessionTabsEnabled(ctx);
             case KEY_AUTOCORRECT:                  return isAutocorrectEnabled(ctx);
             case KEY_SHOW_DRAWER_EXPORT_SCRIPT:    return isShowDrawerExportScript(ctx);
