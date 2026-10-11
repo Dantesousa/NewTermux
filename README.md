@@ -3,7 +3,6 @@
 [![Latest release](https://img.shields.io/github/v/release/The412Banner/NewTermux?label=release)](https://github.com/The412Banner/NewTermux/releases/latest)
 [![Android 7+](https://img.shields.io/badge/Android-7.0%2B-3DDC84?logo=android&logoColor=white)](#installation)
 [![License: GPLv3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE.md)
-[![Discord](https://img.shields.io/badge/Discord-Join%20Server-5865F2?logo=discord&logoColor=white)](https://discord.gg/n8S4G2WZQ4)
 
 A personal fork of [Termux](https://termux.dev) with a modernized **Jetpack Compose** interface and an extended feature set — accent theming, terminal color themes, and built-in package, file and SSH managers. It installs under the `com.termux` package, so it's a **drop-in replacement** for stock Termux and stays fully compatible with the entire [Termux package ecosystem](https://github.com/termux/termux-packages).
 
@@ -103,5 +102,4 @@ Licensed under the **GNU GPLv3** (same as upstream Termux). See [LICENSE.md](LIC
 
 ## Community
 
-- **Discord:** [discord.gg/n8S4G2WZQ4](https://discord.gg/n8S4G2WZQ4)
 - ☕ Support development on [Ko-fi](https://ko-fi.com/the412banner)
