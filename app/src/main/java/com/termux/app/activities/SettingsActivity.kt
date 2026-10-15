@@ -271,7 +271,7 @@ private fun RootScreen(activity: Activity, onBack: () -> Unit, onNav: (Route) ->
             NavRow("Check for Updates", "Download and install new versions") { NewTermuxUpdater.checkNow(activity) }
             HorizontalDivider()
             NavRow("Backup & Restore", "Back up or restore your Termux environment") { onNav(Route.BACKUP) }
-            NavRow("Features", "Toggle NewTermux features on or off") { onNav(Route.FEATURES) }
+            NavRow("Features", "Toggle Nebula features on or off") { onNav(Route.FEATURES) }
             NavRow("Text Expansion", "Auto-expand short triggers to full commands") { onNav(Route.TEXT_EXPANSION) }
             HorizontalDivider()
             NavRow("Termux", "Terminal, keyboard and debugging options") { onNav(Route.TERMUX) }
