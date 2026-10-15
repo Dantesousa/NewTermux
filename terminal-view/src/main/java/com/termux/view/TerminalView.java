@@ -393,6 +393,17 @@ public final class TerminalView extends View {
 
             void sendTextToTerminal(CharSequence text) {
                 stopTextSelectionMode();
+                // NewTermux: colar via teclado (IME) em linha unica — igual ao paste() do botão.
+                // Enter sozinho ("\n" único) continua Enter; só junta quando tem quebra no meio de texto maior.
+                if (text.length() > 1) {
+                    String s = text.toString();
+                    if (s.contains("\n") || s.contains("\r")) {
+                        s = s.replace("\\\r\n", " ");
+                        s = s.replace("\\\n", " ");
+                        s = s.replaceAll("\\s*\\r?\\n\\s*", " ");
+                        text = s;
+                    }
+                }
                 final int textLengthInChars = text.length();
                 for (int i = 0; i < textLengthInChars; i++) {
                     char firstChar = text.charAt(i);
