@@ -2,10 +2,11 @@ package com.newtermux.pi
 
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
-import java.io.PrintWriter
+import java.io.OutputStream
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.nio.charset.StandardCharsets
@@ -17,9 +18,14 @@ import java.util.concurrent.atomic.AtomicInteger
  * O Pi roda como processo separado no ambiente Termux; o daemon
  * (~/work/nebula-pi/daemon/pi-rpc-daemon.mjs) faz a ponte entre o socket TCP
  * local e o `pi --mode rpc`. Como a porta e fixa, o app funciona tanto no
- * build completo (com.termux, que compartilha o filesystem com o Termux) quanto
- * no flavor demo (com.termux.demo, outro UID) — TCP em localhost funciona
- * entre UIDs diferentes.
+ * build completo (com.termux) quanto no flavor demo (com.termux.demo, outro
+ * UID) — TCP em localhost funciona entre UIDs diferentes.
+ *
+ * Cuidados de implementacao:
+ * - Nao usar PrintWriter: ele engole IOException e esconde pipe quebrado.
+ * - Campos de socket sao @Volatile e existe um "generation" para que uma
+ *   thread antiga nao feche o socket de uma conexao nova.
+ * - Todo erro vai para o logcat (tag NebulaPi), que o Termux consegue ler.
  */
 class PiRpcClient(private val port: Int = PiSession.DEFAULT_PORT) {
 
@@ -39,53 +45,84 @@ class PiRpcClient(private val port: Int = PiSession.DEFAULT_PORT) {
 
     private val main = Handler(Looper.getMainLooper())
     private val requestCounter = AtomicInteger(0)
+    private val sendLock = Any()
 
+    @Volatile
     private var socket: Socket? = null
-    private var readerThread: Thread? = null
-    private var writer: PrintWriter? = null
-    private var listener: Listener? = null
+
+    @Volatile
+    private var out: OutputStream? = null
+
+    /** invalida threads de conexao antigas */
+    @Volatile
+    private var generation = 0
+
+    @Volatile
+    private var connected = false
 
     @Volatile
     private var closing = false
 
+    private var readerThread: Thread? = null
+    private var listener: Listener? = null
+
     /** Conecta no daemon. Não bloqueia: roda em thread própria. */
     fun connect(l: Listener) {
         listener = l
+        val gen = ++generation
         closing = false
+
         readerThread = Thread {
             var sock: Socket? = null
             try {
-                sock = Socket()
-                sock.tcpNoDelay = true
-                sock.connect(InetSocketAddress(HOST, port), CONNECT_TIMEOUT_MS)
-                socket = sock
-                writer = PrintWriter(sock.getOutputStream(), true)
+                val s = Socket()
+                s.tcpNoDelay = true
+                s.connect(InetSocketAddress(HOST, port), CONNECT_TIMEOUT_MS)
+                sock = s
+
+                synchronized(sendLock) {
+                    if (gen != generation) {
+                        s.close()
+                        return@Thread
+                    }
+                    socket = s
+                    out = s.getOutputStream()
+                }
+                connected = true
+                Log.i(TAG, "conectado no daemon do Pi em $HOST:$port")
                 main.post { listener?.onConnected() }
                 request("get_state")
 
-                val input = BufferedReader(InputStreamReader(sock.getInputStream(), StandardCharsets.UTF_8))
-                while (!closing) {
+                val input = BufferedReader(InputStreamReader(s.getInputStream(), StandardCharsets.UTF_8))
+                while (gen == generation) {
                     val line = input.readLine() ?: break
                     if (line.isBlank()) continue
                     try {
                         handle(JSONObject(line))
                     } catch (e: Exception) {
-                        main.post { listener?.onProtocolError("evento invalido: ${e.message}") }
+                        Log.e(TAG, "evento invalido do daemon: $line", e)
                     }
                 }
-                if (!closing) main.post { listener?.onDisconnected("conexao fechada pelo daemon") }
+                if (gen == generation && !closing) {
+                    main.post { listener?.onDisconnected("conexao fechada pelo daemon") }
+                }
             } catch (e: Exception) {
-                if (!closing) {
-                    val msg = when (e) {
-                        is java.net.SocketTimeoutException -> "timeout conectando em $HOST:$port"
-                        is java.net.ConnectException ->
-                            "nao conectou em $HOST:$port - o daemon do Pi esta rodando? (no Termux: pi-rpc)"
-                        else -> e.message ?: e.javaClass.simpleName
-                    }
-                    main.post { listener?.onDisconnected(msg) }
+                Log.e(TAG, "erro de conexao com o daemon do Pi", e)
+                if (gen == generation && !closing) {
+                    main.post { listener?.onDisconnected(describe(e)) }
                 }
             } finally {
-                closeSocket()
+                if (gen == generation) {
+                    synchronized(sendLock) {
+                        socket = null
+                        out = null
+                    }
+                    connected = false
+                }
+                try {
+                    sock?.close()
+                } catch (_: Exception) {
+                }
             }
         }.apply {
             isDaemon = true
@@ -94,8 +131,12 @@ class PiRpcClient(private val port: Int = PiSession.DEFAULT_PORT) {
         }
     }
 
-    /** Envia um prompt. [images] e opcional (base64 puro, sem prefixo data:). */
-    fun sendPrompt(text: String, images: List<Pair<String, String>> = emptyList()) {
+    /**
+     * Envia um prompt.
+     * [images] e opcional: lista de (mimeType, base64 sem prefixo data:).
+     * Retorna false se nem deu para escrever (a conexao morreu).
+     */
+    fun sendPrompt(text: String, images: List<Pair<String, String>> = emptyList()): Boolean {
         val payload = JSONObject()
         payload.put("type", "prompt")
         payload.put("message", text)
@@ -111,7 +152,7 @@ class PiRpcClient(private val port: Int = PiSession.DEFAULT_PORT) {
             }
             payload.put("images", arr)
         }
-        send(payload)
+        return send(payload)
     }
 
     /** Requisicao generica com id, para correlacionar a resposta. */
@@ -124,19 +165,29 @@ class PiRpcClient(private val port: Int = PiSession.DEFAULT_PORT) {
         return id
     }
 
-    private fun send(payload: JSONObject) {
-        val w = writer
-        if (w == null) {
-            main.post { listener?.onProtocolError("sem conexao com o daemon") }
-            return
-        }
+    /** Escreve um registro JSONL no socket. */
+    private fun send(payload: JSONObject): Boolean {
+        val bytes = (payload.toString() + "\n").toByteArray(StandardCharsets.UTF_8)
         try {
-            w.println(payload.toString())
-            w.flush()
+            synchronized(sendLock) {
+                val stream = out
+                if (stream == null) {
+                    Log.w(TAG, "sem conexao: prompt descartado")
+                    main.post { listener?.onProtocolError("sem conexao com o daemon (rode 'pi-rpc' no Termux)") }
+                    return false
+                }
+                stream.write(bytes)
+                stream.flush()
+            }
+            return true
         } catch (e: Exception) {
-            main.post { listener?.onDisconnected(e.message ?: "erro ao escrever") }
+            Log.e(TAG, "falha ao escrever no daemon do Pi", e)
+            main.post { listener?.onDisconnected(describe(e)) }
+            return false
         }
     }
+
+    fun isConnected(): Boolean = connected
 
     // ------------------------------------------------------------- eventos
 
@@ -228,25 +279,34 @@ class PiRpcClient(private val port: Int = PiSession.DEFAULT_PORT) {
 
     fun disconnect() {
         closing = true
-        closeSocket()
+        generation++
+        synchronized(sendLock) {
+            try {
+                out?.close()
+            } catch (_: Exception) {
+            }
+            try {
+                socket?.close()
+            } catch (_: Exception) {
+            }
+            out = null
+            socket = null
+        }
+        connected = false
     }
 
-    private fun closeSocket() {
-        try {
-            writer?.close()
-        } catch (_: Exception) {
-        }
-        try {
-            socket?.close()
-        } catch (_: Exception) {
-        }
-        writer = null
-        socket = null
+    private fun describe(e: Exception): String = when (e) {
+        is java.net.SocketTimeoutException -> "timeout conectando em $HOST:$port"
+        is java.net.ConnectException ->
+            "nao conectou em $HOST:$port - o daemon do Pi esta rodando? (no Termux: pi-rpc)"
+        is java.io.EOFException -> "o daemon fechou a conexao"
+        else -> e.message ?: e.javaClass.simpleName
     }
 
     companion object {
         const val HOST = "127.0.0.1"
         const val DEFAULT_PORT = 37877
         private const val CONNECT_TIMEOUT_MS = 4000
+        private const val TAG = "NebulaPi"
     }
 }

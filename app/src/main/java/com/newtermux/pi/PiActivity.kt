@@ -89,7 +89,12 @@ class PiActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
-        PiSession.stop()
+        // A conexao fica viva: reconectar e mais barato que refazer a sessao do Pi.
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        PiSession.shutdown()
     }
 
     companion object {

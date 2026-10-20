@@ -1,5 +1,6 @@
 package com.newtermux.pi
 
+import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -22,6 +23,7 @@ sealed class PiItem {
 object PiSession {
 
     const val DEFAULT_PORT = PiRpcClient.DEFAULT_PORT
+    private const val TAG = "NebulaPi"
 
     val items = mutableStateListOf<PiItem>()
 
@@ -42,11 +44,21 @@ object PiSession {
     private val assistantBuffer = StringBuilder()
     private val thinkingBuffer = StringBuilder()
 
+    /** Prompt que nao conseguiu sair porque a conexao tinha morrido. */
+    private var pendingPrompt: String? = null
+
     private val listener = object : PiRpcClient.Listener {
 
         override fun onConnected() {
             connected = true
             status = "conectado"
+            // Reenvia o prompt que ficou pendente.
+            pendingPrompt?.let {
+                pendingPrompt = null
+                Log.i(TAG, "reenviando prompt pendente")
+                busy = true
+                client.sendPrompt(it)
+            }
         }
 
         override fun onDisconnected(reason: String?) {
@@ -119,13 +131,22 @@ object PiSession {
         }
     }
 
+    /** Conecta (ou reconecta) no daemon. */
     fun start() {
-        if (connected) return
+        if (client.isConnected()) {
+            connected = true
+            return
+        }
         status = "conectando..."
         client.connect(listener)
     }
 
+    /** Mantem a conexao viva entre onStop/onStart; so desliga no onDestroy. */
     fun stop() {
+        // nada a fazer: reconectar e mais barato do que refazer a sessao do Pi
+    }
+
+    fun shutdown() {
         client.disconnect()
         connected = false
         busy = false
@@ -140,7 +161,11 @@ object PiSession {
         assistantBuffer.setLength(0)
         thinkingBuffer.setLength(0)
         busy = true
-        client.sendPrompt(text)
+        if (!client.sendPrompt(text)) {
+            // A conexao estava morta: guarda e reenvia assim que reconectar.
+            pendingPrompt = text
+            start()
+        }
     }
 
     fun clear() {
