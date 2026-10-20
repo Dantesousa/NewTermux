@@ -69,7 +69,7 @@ object PiAttach {
      */
     fun copyToShared(context: Context, uri: Uri, name: String): String? {
         return try {
-            val downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOAD)
+            val downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
             val dir = File(downloads, "nebula-pi-attach")
             if (!dir.exists() && !dir.mkdirs()) {
                 Log.e(TAG, "nao consegui criar ${dir.absolutePath}")

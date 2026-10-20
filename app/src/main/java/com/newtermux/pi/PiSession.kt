@@ -146,7 +146,8 @@ object PiSession {
 
         override fun onResponse(command: String, success: Boolean, data: JSONObject?, error: String?) {
             if (!success) {
-                items.add(PiItem.Notice(error.ifEmpty { "falha no comando $command" }, error = true))
+                val message = error.orEmpty().ifEmpty { "falha no comando $command" }
+                items.add(PiItem.Notice(message, error = true))
                 return
             }
             handleResponse(command, data)
