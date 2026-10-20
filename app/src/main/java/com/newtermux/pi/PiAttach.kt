@@ -94,6 +94,33 @@ object PiAttach {
         return if (clean.isBlank()) "arquivo" else clean.take(120)
     }
 
+    /**
+     * Preview de um documento: primeiras linhas, pra mostrar no chip de anexo.
+     * Só tenta em arquivo de texto (binarios viram null).
+     */
+    fun previewOf(path: String?, maxChars: Int = 220): String? {
+        if (path.isNullOrBlank()) return null
+        return try {
+            val file = File(path)
+            if (!file.exists() || file.length() > 4L * 1024 * 1024) return null
+            val text = file.readText(Charsets.UTF_8)
+            // Heuristica: se tem muitos bytes de controle, nao e texto.
+            val control = text.count { it.code < 9 || (it.code in 11..12) || (it.code in 14..31) }
+            if (control > text.length / 20) return null
+            val clean = text.lineSequence()
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .take(6)
+                .joinToString(" ")
+                .replace(Regex("\\s+"), " ")
+                .trim()
+            if (clean.isEmpty()) null else clean.take(maxChars)
+        } catch (e: Exception) {
+            Log.w(TAG, "nao consegui gerar preview do documento", e)
+            null
+        }
+    }
+
     private fun extensionOf(uri: Uri): String {
         val name = uri.lastPathSegment ?: return ""
         val dot = name.lastIndexOf('.')

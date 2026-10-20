@@ -20,7 +20,10 @@ fun NewTermuxComposeTheme(
     context: Context,
     content: @Composable () -> Unit,
 ) {
-    val accent = Color(NewTermuxTheme.getAccentColor(context))
+    val accent = Color(
+        if (NewTermuxAccent.color != 0) NewTermuxAccent.color
+        else NewTermuxTheme.getAccentColor(context)
+    )
     val colorScheme = darkColorScheme(
         primary = accent,
         onPrimary = Color.Black,

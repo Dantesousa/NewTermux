@@ -41,7 +41,15 @@ data class PiCommand(
 )
 
 /** Qual seletor esta aberto na UI. */
-enum class PiPicker { Commands, Models, Thinking, Sessions }
+enum class PiPicker { Commands, Models, Thinking, Sessions, Theme, Memory }
+
+/** Uma memoria do Hermes (lista de memories). */
+data class PiMemory(
+    val file: String,
+    val text: String,
+    val created: String,
+    val last: String
+)
 
 /** Dialogo que pede um texto ao usuario. */
 class PiTextDialog(val title: String, val hint: String, val onOk: (String) -> Unit)
@@ -63,7 +71,9 @@ data class PiAttachment(
     val mime: String,
     val path: String?,
     val base64: String?,
-    val isImage: Boolean
+    val isImage: Boolean,
+    /** Primeiras linhas do documento, para mostrar no chip. */
+    val preview: String? = null
 )
 
 /** Conteudo compartilhado de outro app (texto ou imagem). */
@@ -99,6 +109,23 @@ object PiSession {
     /** Sessoes salvas do Pi. */
     var sessions by mutableStateOf<List<PiSessionInfo>>(emptyList())
         private set
+
+    /** Filtro de busca das sessoes (titulo). */
+    var sessionQuery by mutableStateOf("")
+
+    /** Memorias do Hermes (lidas pelo daemon). */
+    var memories by mutableStateOf<List<PiMemory>>(emptyList())
+        private set
+
+    /** Filtro de busca das memorias. */
+    var memoryQuery by mutableStateOf("")
+
+    /** Cor de destaque em uso (acento do app inteiro). */
+    var accentColor by mutableStateOf(0)
+        private set
+
+    /** Texto da ultima resposta, pra notificar quando o turno terminar. */
+    private var lastAssistantText = ""
 
     /** Arquivo da sessao ativa (pra destacar na lista). */
     var currentSessionFile by mutableStateOf("")
@@ -190,6 +217,7 @@ object PiSession {
                 assistantIndex = items.size - 1
             }
             assistantBuffer.append(text)
+            lastAssistantText = assistantBuffer.toString()
             items[assistantIndex] = PiItem.Assistant(assistantBuffer.toString())
         }
 
@@ -246,6 +274,17 @@ object PiSession {
 
         override fun onSettled() {
             busy = false
+            // Avisa fora do app: se o painel estiver em background, o usuario
+            // precisa saber que a resposta ficou pronta.
+            val ctx = appContext
+            if (ctx != null) {
+                val summary = lastAssistantText.ifBlank { "Resposta pronta." }
+                Thread { PiNotify.turnDone(ctx, summary) }.apply {
+                    isDaemon = true
+                    name = "pi-notify"
+                    start()
+                }
+            }
         }
 
         override fun onExtensionRequest(request: JSONObject) {
@@ -404,6 +443,34 @@ object PiSession {
                 }
             }
             "get_tree" -> items.add(PiItem.Notice(formatTree(data), error = false))
+            "nebula_memory" -> {
+                val list = mutableListOf<PiMemory>()
+                val arr = data?.optJSONArray("memories")
+                for (i in 0 until (arr?.length() ?: 0)) {
+                    val m = arr!!.optJSONObject(i) ?: continue
+                    val text = m.optString("text")
+                    if (text.isBlank()) continue
+                    list.add(
+                        PiMemory(
+                            file = m.optString("file"),
+                            text = text,
+                            created = m.optString("created"),
+                            last = m.optString("last")
+                        )
+                    )
+                }
+                memories = list
+            }
+            "nebula_memory_save" -> {
+                val saved = data?.optBoolean("saved") ?: false
+                items.add(
+                    PiItem.Notice(
+                        if (saved) "Memoria salva" else "Nao consegui salvar a memoria",
+                        error = !saved
+                    )
+                )
+                if (saved) client.request("nebula_memory")
+            }
         }
     }
 
@@ -572,6 +639,69 @@ object PiSession {
         picker = PiPicker.Sessions
     }
 
+    /** Sessoes filtradas pelo texto da busca (titulo ou caminho). */
+    fun filteredSessions(): List<PiSessionInfo> {
+        val q = sessionQuery.trim()
+        if (q.isEmpty()) return sessions
+        val needle = q.lowercase()
+        return sessions.filter {
+            it.title.lowercase().contains(needle) || it.file.lowercase().contains(needle)
+        }
+    }
+
+    // ------------------------------------------------------------- memoria
+
+    fun openMemory() {
+        client.request("nebula_memory")
+        picker = PiPicker.Memory
+    }
+
+    /** Memorias filtradas pela busca. */
+    fun filteredMemories(): List<PiMemory> {
+        val q = memoryQuery.trim()
+        if (q.isEmpty()) return memories
+        val needle = q.lowercase()
+        return memories.filter {
+            it.text.lowercase().contains(needle) || it.file.lowercase().contains(needle)
+        }
+    }
+
+    /** Salva uma memoria nova (o daemon escreve no arquivo do Hermes). */
+    fun saveMemory(text: String, file: String = "MEMORY.md") {
+        client.request(
+            "nebula_memory_save",
+            JSONObject().put("text", text).put("file", file)
+        )
+    }
+
+    /** Manda uma memoria como contexto pro Pi. */
+    fun useMemory(memory: PiMemory) {
+        picker = null
+        send("Considere esta memoria como contexto:\n\n${memory.text}")
+    }
+
+    // --------------------------------------------------------------- tema
+
+    /** Abre o seletor de cor de destaque. */
+    fun openTheme() {
+        picker = PiPicker.Theme
+    }
+
+    /** Troca o acento do app inteiro (o Termux tambem usa esse acento). */
+    fun setAccent(color: Int) {
+        val ctx = appContext ?: return
+        com.newtermux.features.NewTermuxTheme.setAccentColor(ctx, color)
+        accentColor = color
+        com.newtermux.compose.NewTermuxAccent.set(ctx, color)
+        picker = null
+    }
+
+    /** Cores de destaque disponiveis (inclui as presets do Termux + Nebula). */
+    fun accentOptions(): List<Pair<Int, String>> {
+        val theme = com.newtermux.features.NewTermuxTheme
+        return theme.COLORS.mapIndexed { i, c -> c to theme.COLOR_NAMES[i] }
+    }
+
     /** Comeca uma sessao nova (o Pi cria o arquivo quando houver atividade). */
     fun newSession() {
         picker = null
@@ -693,5 +823,8 @@ object PiSession {
 
     fun attachContext(context: Context) {
         appContext = context.applicationContext
+        accentColor = com.newtermux.features.NewTermuxTheme.getAccentColor(appContext!!)
+        com.newtermux.compose.NewTermuxAccent.load(appContext!!)
+        PiNotify.ensureChannel(appContext!!)
     }
 }

@@ -17,6 +17,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -46,7 +47,10 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -74,6 +78,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -262,7 +267,11 @@ fun PiScreen() {
                 notice("Nao consegui copiar $name para o armazenamento compartilhado")
                 return@launch
             }
-            PiSession.addAttachment(PiAttachment(name, mime, path, null, isImage = false))
+            // Preview: primeiras linhas do texto, pra dar contexto no chip.
+            val preview = withContext(Dispatchers.IO) { PiAttach.previewOf(path) }
+            PiSession.addAttachment(
+                PiAttachment(name, mime, path, null, isImage = false, preview = preview)
+            )
         }
     }
 
@@ -304,6 +313,12 @@ fun PiScreen() {
                     }
                 },
                 actions = {
+                    IconButton(onClick = { PiSession.openMemory() }) {
+                        Icon(Icons.Default.Psychology, contentDescription = "Memoria", modifier = Modifier.size(20.dp))
+                    }
+                    IconButton(onClick = { PiSession.openTheme() }) {
+                        Icon(Icons.Default.Palette, contentDescription = "Tema", modifier = Modifier.size(20.dp))
+                    }
                     IconButton(onClick = { PiSession.openSessions() }) {
                         Icon(Icons.Default.History, contentDescription = "Sessoes", modifier = Modifier.size(20.dp))
                     }
@@ -345,11 +360,22 @@ fun PiScreen() {
                                 AssistChip(
                                     onClick = { PiSession.removeAttachment(att) },
                                     label = {
-                                        Text(
-                                            (if (att.isImage) "🖼 " else "📄 ") + att.name,
-                                            fontSize = 11.sp,
-                                            maxLines = 1
-                                        )
+                                        Column {
+                                            Text(
+                                                (if (att.isImage) "🖼 " else "📄 ") + att.name,
+                                                fontSize = 11.sp,
+                                                maxLines = 1
+                                            )
+                                            if (!att.preview.isNullOrBlank()) {
+                                                Text(
+                                                    att.preview,
+                                                    fontSize = 10.sp,
+                                                    maxLines = 2,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
                                     },
                                     trailingIcon = {
                                         Icon(
@@ -431,6 +457,8 @@ fun PiScreen() {
         PiPicker.Models -> ModelSheet()
         PiPicker.Thinking -> ThinkingSheet()
         PiPicker.Sessions -> SessionsSheet()
+        PiPicker.Theme -> ThemeSheet()
+        PiPicker.Memory -> MemorySheet()
         null -> Unit
     }
 
@@ -585,8 +613,206 @@ private fun ThinkingSheet() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
+private fun ThemeSheet() {
+    val options = PiSession.accentOptions()
+    val current = PiSession.accentColor
+    ModalBottomSheet(onDismissRequest = { PiSession.picker = null }) {
+        LazyColumn(modifier = Modifier.heightIn(max = 520.dp)) {
+            item {
+                Text(
+                    "Cor de destaque",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+                Text(
+                    "Muda a cor do app inteiro (Termux e Nebula Pi).",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
+                )
+            }
+            items(options.chunked(3)) { row ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    row.forEach { (color, name) ->
+                        val isCurrent = color == current
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { PiSession.setAccent(color) },
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Color(color))
+                                    .then(
+                                        if (isCurrent) Modifier.border(
+                                            3.dp,
+                                            MaterialTheme.colorScheme.onSurface,
+                                            RoundedCornerShape(10.dp)
+                                        ) else Modifier
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (isCurrent) {
+                                    Icon(
+                                        Icons.Default.Palette,
+                                        contentDescription = null,
+                                        tint = Color.Black.copy(alpha = 0.6f),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.height(4.dp))
+                            Text(name, fontSize = 11.sp, maxLines = 1)
+                        }
+                    }
+                    repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+                }
+            }
+            item { Spacer(Modifier.height(24.dp)) }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MemorySheet() {
+    val all = PiSession.memories
+    val list = PiSession.filteredMemories()
+    var showSave by remember { mutableStateOf(false) }
+
+    ModalBottomSheet(onDismissRequest = { PiSession.picker = null }) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Memoria",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(onClick = { showSave = true }) {
+                    Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Salvar", fontSize = 13.sp)
+                }
+            }
+            OutlinedTextField(
+                value = PiSession.memoryQuery,
+                onValueChange = { PiSession.memoryQuery = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                placeholder = { Text("Buscar nas ${all.size} memorias...", fontSize = 13.sp) },
+                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp),
+                singleLine = true
+            )
+            LazyColumn(modifier = Modifier.heightIn(max = 460.dp)) {
+                if (list.isEmpty()) {
+                    item {
+                        Text(
+                            if (all.isEmpty()) "Nenhuma memoria encontrada" else "Nada encontrado",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(16.dp)
+                        )
+                    }
+                }
+                items(list) { m ->
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { PiSession.useMemory(m) }
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                    ) {
+                        Text(m.text, fontSize = 12.sp, maxLines = 4, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            m.file + (if (m.last.isNotEmpty()) " · " + m.last else ""),
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                }
+                item { Spacer(Modifier.height(24.dp)) }
+            }
+        }
+    }
+
+    if (showSave) {
+        SaveMemoryDialog(onDismiss = { showSave = false })
+    }
+}
+
+@Composable
+private fun SaveMemoryDialog(onDismiss: () -> Unit) {
+    var text by remember { mutableStateOf("") }
+    var file by remember { mutableStateOf("MEMORY.md") }
+    val files = listOf("MEMORY.md", "USER.md", "failures.md")
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Salvar memoria") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    placeholder = { Text("O que voce quer que eu lembre?") },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 2
+                )
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    files.forEach { f ->
+                        AssistChip(
+                            onClick = { file = f },
+                            label = { Text(f, fontSize = 11.sp) },
+                            leadingIcon = if (file == f) {
+                                {
+                                    Icon(
+                                        Icons.Default.Palette,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
+                            } else null
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    PiSession.saveMemory(text.trim(), file)
+                    onDismiss()
+                },
+                enabled = text.isNotBlank()
+            ) { Text("Salvar") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancelar") }
+        }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
 private fun SessionsSheet() {
-    val sessions = PiSession.sessions
+    val sessions = PiSession.filteredSessions()
     var toDelete by remember { mutableStateOf<PiSessionInfo?>(null) }
 
     ModalBottomSheet(onDismissRequest = { PiSession.picker = null }) {
@@ -620,6 +846,21 @@ private fun SessionsSheet() {
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
+                )
+                OutlinedTextField(
+                    value = PiSession.sessionQuery,
+                    onValueChange = { PiSession.sessionQuery = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                    placeholder = {
+                        Text(
+                            "Buscar nas ${PiSession.sessions.size} sessoes...",
+                            fontSize = 13.sp
+                        )
+                    },
+                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp),
+                    singleLine = true
                 )
             }
             if (sessions.isEmpty()) {

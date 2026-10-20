@@ -22,10 +22,14 @@ public class NewTermuxTheme {
         0xFFE91E63, // Pink
         0xFFFFC107, // Gold
         0xFFFFFFFF, // White
+        0xFF9333EA, // Nebula (roxo da nebulosa)
+        0xFFEC4899, // Fuchsia
+        0xFFC026D3, // Magenta
     };
 
     public static final String[] COLOR_NAMES = {
-        "Purple", "Blue", "Green", "Orange", "Red", "Teal", "Pink", "Gold", "White"
+        "Purple", "Blue", "Green", "Orange", "Red", "Teal", "Pink", "Gold", "White",
+        "Nebula", "Fuchsia", "Magenta"
     };
 
     public static int getAccentColor(Context context) {
