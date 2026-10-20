@@ -66,6 +66,9 @@ data class PiAttachment(
     val isImage: Boolean
 )
 
+/** Conteudo compartilhado de outro app (texto ou imagem). */
+data class PiShared(val text: String?, val attachment: PiAttachment?)
+
 /**
  * Estado da sessao do Pi, compartilhado entre a Activity e o cliente RPC.
  * Fica em object para sobreviver a recriacao da Activity (rotacao, etc).
@@ -109,6 +112,9 @@ object PiSession {
 
     /** Anexos pendentes para a proxima mensagem. */
     val attachments = mutableStateListOf<PiAttachment>()
+
+    /** Conteudo compartilhado de outro app, aguardando ser aplicado na UI. */
+    var shared by mutableStateOf<PiShared?>(null)
 
     private val client = PiRpcClient(DEFAULT_PORT)
     private var appContext: Context? = null
@@ -363,6 +369,8 @@ object PiSession {
             "new_session" -> {
                 clear()
                 items.add(PiItem.Notice("Nova sessao iniciada", error = false))
+                client.request("get_state")
+                client.request("nebula_sessions")
             }
             "compact" -> items.add(PiItem.Notice("Contexto compactado", error = false))
             "export_html" -> items.add(PiItem.Notice("Sessao exportada: " + (data?.optString("path") ?: "?"), error = false))
@@ -528,6 +536,12 @@ object PiSession {
     fun openSessions() {
         client.request("nebula_sessions")
         picker = PiPicker.Sessions
+    }
+
+    /** Comeca uma sessao nova (o Pi cria o arquivo quando houver atividade). */
+    fun newSession() {
+        picker = null
+        client.request("new_session")
     }
 
     fun switchSession(info: PiSessionInfo) {

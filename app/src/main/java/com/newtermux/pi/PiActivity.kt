@@ -1,9 +1,13 @@
 package com.newtermux.pi
 
 import android.Manifest
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.util.Base64
 import android.util.Log
@@ -35,6 +39,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
@@ -95,9 +100,74 @@ class PiActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         installCrashLogger()
         PiSession.attachContext(this)
+        requestOverlayPermissionOnce()
+        handleShareIntent(intent)
         setContent {
             NewTermuxComposeTheme(this) {
                 PiScreen()
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        if (intent != null) {
+            setIntent(intent)
+            handleShareIntent(intent)
+        }
+    }
+
+    /**
+     * Pede uma vez a permissao "Display over other apps". Sem ela, o Termux
+     * nao consegue abrir activities em background (e o comando `pi-panel` do
+     * terminal nao funciona).
+     */
+    private fun requestOverlayPermissionOnce() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+        val prefs = getSharedPreferences("nebula_pi", Context.MODE_PRIVATE)
+        if (prefs.getBoolean("overlay_requested", false)) return
+        prefs.edit().putBoolean("overlay_requested", true).apply()
+        try {
+            if (!com.termux.shared.android.PermissionUtils.checkDisplayOverOtherAppsPermission(this)) {
+                com.termux.shared.android.PermissionUtils.requestDisplayOverOtherAppsPermission(this)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "nao consegui pedir a permissao de overlay", e)
+        }
+    }
+
+    /** Recebe texto ou imagem compartilhados de outro app. */
+    private fun handleShareIntent(intent: Intent?) {
+        if (intent == null) return
+        if (intent.action != Intent.ACTION_SEND) return
+        val type = intent.type ?: return
+
+        if (type.startsWith("text/")) {
+            val text = intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty()
+            if (text.isNotBlank()) {
+                PiSession.shared = PiShared(text, null)
+            }
+            return
+        }
+
+        if (type.startsWith("image/")) {
+            val uri: Uri? = intent.getParcelableExtra(Intent.EXTRA_STREAM)
+            if (uri == null) return
+            Thread {
+                val mime = PiAttach.mimeOf(this, uri)
+                val name = PiAttach.displayName(this, uri)
+                val bytes = PiAttach.readBytes(this, uri)
+                if (bytes == null || bytes.isEmpty()) return@Thread
+                runOnUiThread {
+                    PiSession.shared = PiShared(
+                        "Analise esta imagem:",
+                        PiAttachment(name, mime, null, PiAttach.toBase64(bytes), isImage = true)
+                    )
+                }
+            }.apply {
+                isDaemon = true
+                name = "pi-share"
+                start()
             }
         }
     }
@@ -147,6 +217,14 @@ fun PiScreen() {
     LaunchedEffect(PiSession.items.size) {
         val last = PiSession.items.size - 1
         if (last >= 0) listState.animateScrollToItem(last)
+    }
+
+    // conteudo compartilhado de outro app: preenche o campo e/ou anexa
+    LaunchedEffect(PiSession.shared) {
+        val shared = PiSession.shared ?: return@LaunchedEffect
+        PiSession.shared = null
+        shared.text?.let { input = it }
+        shared.attachment?.let { PiSession.addAttachment(it) }
     }
 
     fun notice(text: String, error: Boolean = true) {
@@ -521,6 +599,23 @@ private fun SessionsSheet() {
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                 )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { PiSession.newSession() }
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.Add,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Text("Nova sessao", fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
+                }
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                 Text(
                     "Toque para abrir a sessao. A lixeira apaga o arquivo.",
                     fontSize = 12.sp,
