@@ -15,7 +15,7 @@ sealed class PiItem {
     data class User(val text: String, val images: List<String> = emptyList()) : PiItem()
     data class Assistant(val text: String, val images: List<String> = emptyList()) : PiItem()
     data class Thinking(val text: String, val images: List<String> = emptyList()) : PiItem()
-    data class Tool(val name: String, val running: Boolean) : PiItem()
+    data class Tool(val name: String, val running: Boolean, val text: String = "", val images: List<String> = emptyList()) : PiItem()
     data class Bash(val text: String) : PiItem()
     data class Notice(val text: String, val error: Boolean = false) : PiItem()
 }
@@ -208,12 +208,25 @@ object PiSession {
             toolIndex = items.size - 1
         }
 
-        override fun onToolEnd(name: String) {
-            if (toolIndex >= 0 && toolIndex < items.size) {
-                val current = items[toolIndex]
-                if (current is PiItem.Tool) {
-                    items[toolIndex] = PiItem.Tool(current.name, running = false)
+        override fun onToolEnd(name: String, text: String, images: List<String>) {
+            // Procura de tras pra frente a tool ainda rodando com o mesmo nome
+            // (suporta tools em paralelo; cai no toolIndex como fallback).
+            var idx = -1
+            for (i in items.size - 1 downTo 0) {
+                val it = items[i]
+                if (it is PiItem.Tool && it.running && it.name == name) {
+                    idx = i
+                    break
                 }
+            }
+            if (idx < 0 && toolIndex >= 0 && toolIndex < items.size) {
+                val current = items[toolIndex]
+                if (current is PiItem.Tool && current.running) idx = toolIndex
+            }
+            if (idx >= 0) {
+                val current = items[idx] as PiItem.Tool
+                items[idx] = PiItem.Tool(current.name, running = false, text = text, images = images)
+                if (idx == toolIndex) toolIndex = -1
             }
         }
 
@@ -404,6 +417,20 @@ object PiSession {
                     val (text, images) = extractContent(m)
                     if (text.isNotBlank() || images.isNotEmpty()) {
                         items.add(PiItem.Assistant(text, images))
+                    }
+                }
+                "toolResult" -> {
+                    // Resultado de tool (ex.: `read` em imagem): mostra como embed.
+                    // Sem isso, imagem lida pelo Pi ia so pro modelo, sem preview na UI.
+                    val (text, images) = extractContent(m)
+                    val name = m.optString("toolName").ifEmpty { "tool" }
+                    var preview = text.trim()
+                    if (preview.length > PiRpcClient.MAX_TOOL_TEXT) {
+                        preview = preview.take(PiRpcClient.MAX_TOOL_TEXT).trimEnd() + "\u2026 (+continua)"
+                    }
+                    val imgs = images.take(PiRpcClient.MAX_TOOL_IMAGES)
+                    if (preview.isNotBlank() || imgs.isNotEmpty()) {
+                        items.add(PiItem.Tool(name, running = false, text = preview, images = imgs))
                     }
                 }
             }

@@ -43,7 +43,7 @@ class PiRpcClient(private val port: Int = PiSession.DEFAULT_PORT) {
         fun onTextDelta(text: String)
         fun onThinkingDelta(text: String)
         fun onToolStart(name: String)
-        fun onToolEnd(name: String)
+        fun onToolEnd(name: String, text: String = "", images: List<String> = emptyList())
         fun onAssistantMessage(text: String, thinking: String, images: List<String>)
         fun onSettled()
         /** Dialogo de extensao (select/confirm/input/editor). */
@@ -333,7 +333,10 @@ class PiRpcClient(private val port: Int = PiSession.DEFAULT_PORT) {
             }
             "tool_execution_end" -> {
                 val name = record.optString("toolName").ifEmpty { record.optString("tool") }
-                if (name.isNotEmpty()) main.post { listener?.onToolEnd(name) }
+                if (name.isNotEmpty()) {
+                    val (text, images) = extractToolResult(record.optJSONObject("result"))
+                    main.post { listener?.onToolEnd(name, text, images) }
+                }
             }
             "agent_settled" -> main.post { listener?.onSettled() }
         }
@@ -405,6 +408,40 @@ class PiRpcClient(private val port: Int = PiSession.DEFAULT_PORT) {
         return sb.toString()
     }
 
+    /**
+     * Extrai previa de texto e imagens do `result` de um tool_execution_end.
+     * O formato e o mesmo dos blocos de mensagem: content:[{type,text|image}].
+     * Texto e truncado para nao lotar a conversa; imagens limitadas a 3.
+     */
+    private fun extractToolResult(result: JSONObject?): Pair<String, List<String>> {
+        if (result == null) return "" to emptyList()
+        val content = result.optJSONArray("content") ?: return "" to emptyList()
+        val text = StringBuilder()
+        val images = mutableListOf<String>()
+        for (i in 0 until content.length()) {
+            val block = content.optJSONObject(i) ?: continue
+            when (block.optString("type")) {
+                "text" -> {
+                    val t = block.optString("text")
+                    if (t.isNotEmpty()) {
+                        if (text.isNotEmpty()) text.append("\n")
+                        text.append(t)
+                    }
+                }
+                "image" -> {
+                    val data = block.optString("data")
+                    if (data.isNotEmpty() && images.size < MAX_TOOL_IMAGES) images.add(data)
+                }
+            }
+            if (text.length > MAX_TOOL_TEXT) break
+        }
+        var preview = text.toString().trim()
+        if (preview.length > MAX_TOOL_TEXT) {
+            preview = preview.take(MAX_TOOL_TEXT).trimEnd() + "\u2026 (+continua)"
+        }
+        return preview to images
+    }
+
     // ------------------------------------------------------------- ciclo de vida
 
     fun disconnect() {
@@ -446,5 +483,9 @@ class PiRpcClient(private val port: Int = PiSession.DEFAULT_PORT) {
         const val DEFAULT_PORT = 37877
         private const val CONNECT_TIMEOUT_MS = 4000
         private const val TAG = "NebulaPi"
+        /** Previa de texto de tool result (evita lotar a conversa com `read` grande). */
+        const val MAX_TOOL_TEXT = 800
+        /** Maximo de imagens por tool result (evita OOM com varias imagens). */
+        const val MAX_TOOL_IMAGES = 3
     }
 }

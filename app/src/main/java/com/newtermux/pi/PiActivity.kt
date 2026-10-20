@@ -78,6 +78,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -828,7 +829,7 @@ private fun PiItemView(index: Int, item: PiItem) {
         is PiItem.User -> UserBubble(item.text, item.images)
         is PiItem.Assistant -> AssistantBubble(item.text, item.images)
         is PiItem.Thinking -> ThinkingBlock(index, item.text)
-        is PiItem.Tool -> ToolChip(item.name, item.running)
+        is PiItem.Tool -> ToolChip(item.name, item.running, item.text, item.images)
         is PiItem.Bash -> BashBlock(item.text)
         is PiItem.Notice -> NoticeLine(item.text, item.error)
     }
@@ -944,12 +945,11 @@ private fun ThinkingBlock(index: Int, text: String) {
 }
 
 @Composable
-private fun ToolChip(name: String, running: Boolean) {
-    Row(
+private fun ToolChip(name: String, running: Boolean, text: String = "", images: List<String> = emptyList()) {
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(horizontal = 4.dp, vertical = 2.dp)
     ) {
         Text(
             "⚙ " + name + (if (running) " ..." else " ✓"),
@@ -957,6 +957,24 @@ private fun ToolChip(name: String, running: Boolean) {
             fontFamily = FontFamily.Monospace,
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
         )
+        if (text.isNotBlank()) {
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text,
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                maxLines = 8,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = 16.dp)
+            )
+        }
+        if (images.isNotEmpty()) {
+            Spacer(Modifier.height(4.dp))
+            Column(modifier = Modifier.padding(start = 16.dp)) {
+                images.forEach { PiImageThumb(it) }
+            }
+        }
     }
 }
 
