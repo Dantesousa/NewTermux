@@ -2,12 +2,16 @@ package com.newtermux.pi
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.os.Bundle
+import android.util.Base64
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -35,6 +39,7 @@ import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Send
@@ -63,6 +68,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -220,6 +227,9 @@ fun PiScreen() {
                     }
                 },
                 actions = {
+                    IconButton(onClick = { PiSession.openSessions() }) {
+                        Icon(Icons.Default.History, contentDescription = "Sessoes", modifier = Modifier.size(20.dp))
+                    }
                     IconButton(onClick = { PiSession.openCommandPalette() }) {
                         Icon(Icons.Default.List, contentDescription = "Comandos", modifier = Modifier.size(20.dp))
                     }
@@ -343,6 +353,7 @@ fun PiScreen() {
         PiPicker.Commands -> CommandSheet()
         PiPicker.Models -> ModelSheet()
         PiPicker.Thinking -> ThinkingSheet()
+        PiPicker.Sessions -> SessionsSheet()
         null -> Unit
     }
 
@@ -495,6 +506,107 @@ private fun ThinkingSheet() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SessionsSheet() {
+    val sessions = PiSession.sessions
+    var toDelete by remember { mutableStateOf<PiSessionInfo?>(null) }
+
+    ModalBottomSheet(onDismissRequest = { PiSession.picker = null }) {
+        LazyColumn(modifier = Modifier.heightIn(max = 560.dp)) {
+            item {
+                Text(
+                    "Sessoes",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+                Text(
+                    "Toque para abrir a sessao. A lixeira apaga o arquivo.",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
+                )
+            }
+            if (sessions.isEmpty()) {
+                item {
+                    Text(
+                        "Nenhuma sessao encontrada",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(16.dp)
+                    )
+                }
+            }
+            items(sessions) { s ->
+                val isCurrent = s.file == PiSession.currentSessionFile
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { PiSession.switchSession(s) }
+                        .padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            (if (isCurrent) "● " else "") + s.title.ifEmpty { "(sem titulo)" },
+                            fontSize = 14.sp,
+                            maxLines = 2
+                        )
+                        Text(
+                            s.userMessages.toString() + " perguntas · " +
+                                s.messages.toString() + " mensagens · " +
+                                formatDate(s.modified),
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    IconButton(onClick = { toDelete = s }) {
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = "Apagar sessao",
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            }
+            item { Spacer(Modifier.height(24.dp)) }
+        }
+    }
+
+    toDelete?.let { target ->
+        AlertDialog(
+            onDismissRequest = { toDelete = null },
+            title = { Text("Apagar sessao?") },
+            text = {
+                Text(
+                    "\"" + target.title.ifEmpty { "(sem titulo)" } + "\"\n" +
+                        "O arquivo da sessao sera apagado do disco. Nao da para desfazer."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    PiSession.deleteSession(target)
+                    toDelete = null
+                }) { Text("Apagar") }
+            },
+            dismissButton = {
+                TextButton(onClick = { toDelete = null }) { Text("Cancelar") }
+            }
+        )
+    }
+}
+
+private fun formatDate(millis: Long): String {
+    return try {
+        java.text.DateFormat.getDateTimeInstance(
+            java.text.DateFormat.SHORT, java.text.DateFormat.SHORT
+        ).format(java.util.Date(millis))
+    } catch (e: Exception) {
+        ""
+    }
+}
+
 // -------------------------------------------------------------- dialogos
 
 @Composable
@@ -620,8 +732,8 @@ private fun EmptyState() {
 @Composable
 private fun PiItemView(index: Int, item: PiItem) {
     when (item) {
-        is PiItem.User -> UserBubble(item.text)
-        is PiItem.Assistant -> AssistantBubble(item.text)
+        is PiItem.User -> UserBubble(item.text, item.images)
+        is PiItem.Assistant -> AssistantBubble(item.text, item.images)
         is PiItem.Thinking -> ThinkingBlock(index, item.text)
         is PiItem.Tool -> ToolChip(item.name, item.running)
         is PiItem.Bash -> BashBlock(item.text)
@@ -629,38 +741,84 @@ private fun PiItemView(index: Int, item: PiItem) {
     }
 }
 
+/** Miniatura de imagem anexada (base64 puro). */
 @Composable
-private fun UserBubble(text: String) {
+private fun PiImageThumb(base64: String) {
+    val bitmap = remember(base64) { decodeImage(base64) }
+    if (bitmap != null) {
+        Image(
+            bitmap = bitmap.asImageBitmap(),
+            contentDescription = "imagem",
+            modifier = Modifier
+                .widthIn(max = 260.dp)
+                .clip(RoundedCornerShape(10.dp))
+        )
+    }
+}
+
+private fun decodeImage(base64: String): Bitmap? {
+    return try {
+        val raw = if (base64.startsWith("data:")) base64.substringAfter(',') else base64
+        val bytes = Base64.decode(raw, Base64.DEFAULT)
+        val bounds = BitmapFactory.Options()
+        bounds.inJustDecodeBounds = true
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        var sample = 1
+        val maxDim = maxOf(bounds.outWidth, bounds.outHeight)
+        while (maxDim / sample > 900) sample *= 2
+        val opts = BitmapFactory.Options()
+        opts.inSampleSize = sample
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+    } catch (e: Exception) {
+        Log.w("NebulaPi", "nao consegui decodificar a imagem", e)
+        null
+    }
+}
+
+@Composable
+private fun UserBubble(text: String, images: List<String> = emptyList()) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
         Surface(
             color = MaterialTheme.colorScheme.primaryContainer,
             shape = RoundedCornerShape(14.dp, 14.dp, 4.dp, 14.dp),
             modifier = Modifier.widthIn(max = 280.dp)
         ) {
-            Text(
-                text,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                fontSize = 14.sp,
-                color = MaterialTheme.colorScheme.onPrimaryContainer
-            )
+            Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)) {
+                images.forEach { PiImageThumb(it) }
+                if (images.isNotEmpty() && text.isNotEmpty()) Spacer(Modifier.height(6.dp))
+                if (text.isNotEmpty()) {
+                    Text(
+                        text,
+                        modifier = Modifier.padding(horizontal = 4.dp),
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun AssistantBubble(text: String) {
+private fun AssistantBubble(text: String, images: List<String> = emptyList()) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
         Surface(
             color = MaterialTheme.colorScheme.surfaceVariant,
             shape = RoundedCornerShape(14.dp, 14.dp, 14.dp, 4.dp),
             modifier = Modifier.widthIn(max = 300.dp)
         ) {
-            Text(
-                text,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                fontSize = 14.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)) {
+                images.forEach { PiImageThumb(it) }
+                if (images.isNotEmpty() && text.isNotEmpty()) Spacer(Modifier.height(6.dp))
+                if (text.isNotEmpty()) {
+                    Text(
+                        text,
+                        modifier = Modifier.padding(horizontal = 4.dp),
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
         }
     }
 }

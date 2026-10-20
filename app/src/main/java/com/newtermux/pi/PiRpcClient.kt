@@ -44,7 +44,7 @@ class PiRpcClient(private val port: Int = PiSession.DEFAULT_PORT) {
         fun onThinkingDelta(text: String)
         fun onToolStart(name: String)
         fun onToolEnd(name: String)
-        fun onAssistantMessage(text: String, thinking: String)
+        fun onAssistantMessage(text: String, thinking: String, images: List<String>)
         fun onSettled()
         /** Dialogo de extensao (select/confirm/input/editor). */
         fun onExtensionRequest(request: JSONObject)
@@ -312,14 +312,19 @@ class PiRpcClient(private val port: Int = PiSession.DEFAULT_PORT) {
                     val content = message.optJSONArray("content")
                     var text = ""
                     var thinking = ""
+                    val images = mutableListOf<String>()
                     for (i in 0 until (content?.length() ?: 0)) {
                         val block = content!!.optJSONObject(i) ?: continue
                         when (block.optString("type")) {
                             "text" -> text += block.optString("text")
                             "thinking" -> thinking += block.optString("thinking")
+                            "image" -> {
+                                val data = block.optString("data")
+                                if (data.isNotEmpty()) images.add(data)
+                            }
                         }
                     }
-                    main.post { listener?.onAssistantMessage(text, thinking) }
+                    main.post { listener?.onAssistantMessage(text, thinking, images) }
                 }
             }
             "tool_execution_start" -> {

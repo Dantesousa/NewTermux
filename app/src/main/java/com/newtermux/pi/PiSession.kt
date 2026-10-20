@@ -12,13 +12,25 @@ import org.json.JSONObject
 
 /** Um item da conversa exibida na tela do Pi. */
 sealed class PiItem {
-    data class User(val text: String) : PiItem()
-    data class Assistant(val text: String) : PiItem()
-    data class Thinking(val text: String) : PiItem()
+    data class User(val text: String, val images: List<String> = emptyList()) : PiItem()
+    data class Assistant(val text: String, val images: List<String> = emptyList()) : PiItem()
+    data class Thinking(val text: String, val images: List<String> = emptyList()) : PiItem()
     data class Tool(val name: String, val running: Boolean) : PiItem()
     data class Bash(val text: String) : PiItem()
     data class Notice(val text: String, val error: Boolean = false) : PiItem()
 }
+
+/** Sessao salva do Pi (listada pelo daemon). */
+data class PiSessionInfo(
+    val id: String,
+    val title: String,
+    val file: String,
+    val modified: Long,
+    val size: Long,
+    val messages: Int,
+    val userMessages: Int,
+    val cwd: String
+)
 
 /** Comando da palette. [kind]: builtin, extension, prompt ou skill. */
 data class PiCommand(
@@ -29,7 +41,7 @@ data class PiCommand(
 )
 
 /** Qual seletor esta aberto na UI. */
-enum class PiPicker { Commands, Models, Thinking }
+enum class PiPicker { Commands, Models, Thinking, Sessions }
 
 /** Dialogo que pede um texto ao usuario. */
 class PiTextDialog(val title: String, val hint: String, val onOk: (String) -> Unit)
@@ -78,8 +90,16 @@ object PiSession {
     var commands by mutableStateOf<List<PiCommand>>(emptyList())
         private set
 
-    /** Seletor aberto (comandos, modelos ou niveis de raciocinio). */
+    /** Seletor aberto (comandos, modelos, niveis de raciocinio ou sessoes). */
     var picker by mutableStateOf<PiPicker?>(null)
+
+    /** Sessoes salvas do Pi. */
+    var sessions by mutableStateOf<List<PiSessionInfo>>(emptyList())
+        private set
+
+    /** Arquivo da sessao ativa (pra destacar na lista). */
+    var currentSessionFile by mutableStateOf("")
+        private set
 
     /** Dialogo pedindo texto. */
     var textDialog by mutableStateOf<PiTextDialog?>(null)
@@ -99,8 +119,8 @@ object PiSession {
     private val assistantBuffer = StringBuilder()
     private val thinkingBuffer = StringBuilder()
 
-    /** Prompt que nao conseguiu sair porque a conexao tinha morrido. */
-    private var pendingPrompt: String? = null
+    /** Prompt (e anexos) que nao conseguiu sair porque a conexao tinha morrido. */
+    private var pendingPrompt: Pair<String, List<Pair<String, String>>>? = null
 
     private val models = mutableStateListOf<PiModelChoice>()
     private val thinkingLevels = mutableStateListOf<String>()
@@ -129,11 +149,11 @@ object PiSession {
             connected = true
             status = "conectado"
             client.request("get_commands")
-            pendingPrompt?.let {
+            pendingPrompt?.let { (text, pendingImages) ->
                 pendingPrompt = null
                 Log.i(TAG, "reenviando prompt pendente")
                 busy = true
-                client.sendPrompt(it)
+                client.sendPrompt(text, pendingImages)
             }
         }
 
@@ -191,9 +211,15 @@ object PiSession {
             }
         }
 
-        override fun onAssistantMessage(text: String, thinking: String) {
-            if (assistantIndex >= 0 && assistantIndex < items.size && text.isNotEmpty()) {
-                items[assistantIndex] = PiItem.Assistant(text)
+        override fun onAssistantMessage(text: String, thinking: String, images: List<String>) {
+            if (assistantIndex >= 0 && assistantIndex < items.size) {
+                val current = items[assistantIndex]
+                if (current is PiItem.Assistant) {
+                    items[assistantIndex] = PiItem.Assistant(
+                        text.ifEmpty { current.text },
+                        images.ifEmpty { current.images }
+                    )
+                }
             }
             assistantIndex = -1
             thinkingIndex = -1
@@ -243,7 +269,48 @@ object PiSession {
                 if (id != null) model = id
                 val thinking = data?.optString("thinkingLevel").orEmpty()
                 status = if (thinking.isNotEmpty()) "$model ($thinking)" else model.ifEmpty { "conectado" }
+                val file = data?.optString("sessionFile").orEmpty()
+                if (file.isNotEmpty()) currentSessionFile = file
             }
+            "nebula_sessions" -> {
+                val list = mutableListOf<PiSessionInfo>()
+                val arr = data?.optJSONArray("sessions")
+                for (i in 0 until (arr?.length() ?: 0)) {
+                    val s = arr!!.optJSONObject(i) ?: continue
+                    list.add(
+                        PiSessionInfo(
+                            id = s.optString("id"),
+                            title = s.optString("title"),
+                            file = s.optString("file"),
+                            modified = s.optLong("modified"),
+                            size = s.optLong("size"),
+                            messages = s.optInt("messages"),
+                            userMessages = s.optInt("userMessages"),
+                            cwd = s.optString("cwd")
+                        )
+                    )
+                }
+                sessions = list
+            }
+            "nebula_delete_session" -> {
+                val deleted = data?.optBoolean("deleted") ?: false
+                items.add(
+                    PiItem.Notice(
+                        if (deleted) "Sessao apagada" else "Nao consegui apagar a sessao",
+                        error = !deleted
+                    )
+                )
+                client.request("nebula_sessions")
+            }
+            "switch_session" -> {
+                val cancelled = data?.optBoolean("cancelled") ?: false
+                if (cancelled) {
+                    items.add(PiItem.Notice("Troca de sessao cancelada", error = true))
+                } else {
+                    client.request("get_messages")
+                }
+            }
+            "get_messages" -> reloadMessages(data)
             "get_commands" -> {
                 val found = mutableListOf<PiCommand>()
                 val arr = data?.optJSONArray("commands")
@@ -310,6 +377,54 @@ object PiSession {
             }
             "get_tree" -> items.add(PiItem.Notice(formatTree(data), error = false))
         }
+    }
+
+    /** Recarrega a conversa depois de trocar de sessao. */
+    private fun reloadMessages(data: JSONObject?) {
+        val arr = data?.optJSONArray("messages") ?: return
+        clear()
+        for (i in 0 until arr.length()) {
+            val m = arr.optJSONObject(i) ?: continue
+            when (m.optString("role")) {
+                "user" -> {
+                    val (text, images) = extractContent(m)
+                    if (text.isNotBlank() || images.isNotEmpty()) {
+                        items.add(PiItem.User(text, images))
+                    }
+                }
+                "assistant" -> {
+                    val (text, images) = extractContent(m)
+                    if (text.isNotBlank() || images.isNotEmpty()) {
+                        items.add(PiItem.Assistant(text, images))
+                    }
+                }
+            }
+        }
+        items.add(PiItem.Notice("Sessao carregada", error = false))
+    }
+
+    /** Extrai texto e imagens do conteudo de uma mensagem. */
+    private fun extractContent(message: JSONObject): Pair<String, List<String>> {
+        val text = StringBuilder()
+        val images = mutableListOf<String>()
+        val content = message.opt("content")
+        when (content) {
+            is String -> text.append(content)
+            is org.json.JSONArray -> {
+                for (i in 0 until content.length()) {
+                    val block = content.optJSONObject(i) ?: continue
+                    when (block.optString("type")) {
+                        "text" -> text.append(block.optString("text"))
+                        "image" -> {
+                            val data = block.optString("data")
+                            if (data.isNotEmpty()) images.add(data)
+                        }
+                    }
+                }
+            }
+            else -> Unit
+        }
+        return text.toString().trim() to images
     }
 
     private fun formatStats(data: JSONObject?): String {
@@ -408,6 +523,23 @@ object PiSession {
         picker = PiPicker.Commands
     }
 
+    // ------------------------------------------------------------ sessoes
+
+    fun openSessions() {
+        client.request("nebula_sessions")
+        picker = PiPicker.Sessions
+    }
+
+    fun switchSession(info: PiSessionInfo) {
+        picker = null
+        items.clear()
+        client.request("switch_session", JSONObject().put("sessionPath", info.file))
+    }
+
+    fun deleteSession(info: PiSessionInfo) {
+        client.request("nebula_delete_session", JSONObject().put("path", info.file))
+    }
+
     // ------------------------------------------------- dialogos de extensao
 
     fun respondExtensionValue(id: String, value: String) {
@@ -486,7 +618,7 @@ object PiSession {
             else "$message\n\nArquivo(s) para ler:\n$list"
         }
 
-        items.add(PiItem.User(message))
+        items.add(PiItem.User(message, images.map { it.second }))
         assistantIndex = -1
         thinkingIndex = -1
         assistantBuffer.setLength(0)
@@ -494,7 +626,7 @@ object PiSession {
         busy = true
         if (!client.sendPrompt(message, images)) {
             // A conexao estava morta: guarda e reenvia assim que reconectar.
-            pendingPrompt = message
+            pendingPrompt = message to images
             start()
         }
     }
