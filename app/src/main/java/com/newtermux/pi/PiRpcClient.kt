@@ -37,7 +37,8 @@ class PiRpcClient(private val port: Int = PiSession.DEFAULT_PORT) {
     interface Listener {
         fun onConnected()
         fun onDisconnected(reason: String?)
-        fun onState(state: JSONObject)
+        /** Resposta de um comando RPC. [data] e null em caso de erro. */
+        fun onResponse(command: String, success: Boolean, data: JSONObject?, error: String?)
         fun onUserMessage(text: String)
         fun onTextDelta(text: String)
         fun onThinkingDelta(text: String)
@@ -45,6 +46,13 @@ class PiRpcClient(private val port: Int = PiSession.DEFAULT_PORT) {
         fun onToolEnd(name: String)
         fun onAssistantMessage(text: String, thinking: String)
         fun onSettled()
+        /** Dialogo de extensao (select/confirm/input/editor). */
+        fun onExtensionRequest(request: JSONObject)
+        /** Aviso/estado de extensao (notify, setStatus, setTitle...). */
+        fun onExtensionNotice(message: String)
+        /** Saida de comando bash. */
+        fun onBashOutput(chunk: String)
+        /** Erro de protocolo (prompt recusado, sem conexao, etc). */
         fun onProtocolError(message: String)
     }
 
@@ -219,13 +227,50 @@ class PiRpcClient(private val port: Int = PiSession.DEFAULT_PORT) {
     }
 
     /** Requisicao generica com id, para correlacionar a resposta. */
-    fun request(type: String): String {
+    fun request(type: String): String = request(type, null)
+
+    /** Requisicao generica com campos extras (ex.: {"level":"high"}). */
+    fun request(type: String, extras: JSONObject?): String {
         val id = "req-" + requestCounter.incrementAndGet()
         val payload = JSONObject()
         payload.put("id", id)
         payload.put("type", type)
+        if (extras != null) {
+            val keys = extras.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                payload.put(key, extras.get(key))
+            }
+        }
         send(payload)
         return id
+    }
+
+    /** Responde a um dialogo de extensao com um valor (select/input/editor). */
+    fun respondExtensionUi(id: String, value: String) {
+        val payload = JSONObject()
+        payload.put("type", "extension_ui_response")
+        payload.put("id", id)
+        payload.put("value", value)
+        send(payload)
+    }
+
+    /** Responde a um dialogo de extensao com confirmacao (confirm). */
+    fun respondExtensionUiConfirmed(id: String, confirmed: Boolean) {
+        val payload = JSONObject()
+        payload.put("type", "extension_ui_response")
+        payload.put("id", id)
+        payload.put("confirmed", confirmed)
+        send(payload)
+    }
+
+    /** Cancela um dialogo de extensao. */
+    fun cancelExtensionUi(id: String) {
+        val payload = JSONObject()
+        payload.put("type", "extension_ui_response")
+        payload.put("id", id)
+        payload.put("cancelled", true)
+        send(payload)
     }
 
     /** Enfileira um registro JSONL. Nao faz I/O de rede (thread main). */
@@ -248,6 +293,11 @@ class PiRpcClient(private val port: Int = PiSession.DEFAULT_PORT) {
     private fun handle(record: JSONObject) {
         when (record.optString("type")) {
             "response" -> handleResponse(record)
+            "extension_ui_request" -> handleExtensionRequest(record)
+            "bash_execution_update" -> {
+                val out = record.optString("output").ifEmpty { record.optString("delta") }
+                if (out.isNotEmpty()) main.post { listener?.onBashOutput(out) }
+            }
             "message_start" -> {
                 val message = record.optJSONObject("message") ?: return
                 if (message.optString("role") == "user") {
@@ -286,14 +336,35 @@ class PiRpcClient(private val port: Int = PiSession.DEFAULT_PORT) {
 
     private fun handleResponse(record: JSONObject) {
         val command = record.optString("command")
-        if (!record.optBoolean("success")) {
-            val error = record.optString("error")
-            if (error.isNotEmpty()) main.post { listener?.onProtocolError(error) }
-            return
-        }
-        if (command == "get_state") {
-            val data = record.optJSONObject("data") ?: JSONObject()
-            main.post { listener?.onState(data) }
+        val success = record.optBoolean("success")
+        val error = record.optString("error")
+        val data = record.optJSONObject("data")
+        main.post { listener?.onResponse(command, success, data, error) }
+    }
+
+    private fun handleExtensionRequest(record: JSONObject) {
+        val method = record.optString("method")
+        when (method) {
+            "notify" -> {
+                val msg = record.optString("message")
+                main.post { listener?.onExtensionNotice(msg) }
+            }
+            "setStatus" -> {
+                val msg = record.optString("statusText")
+                if (msg.isNotEmpty()) main.post { listener?.onExtensionNotice(msg) }
+            }
+            "setTitle" -> {
+                val msg = record.optString("title")
+                if (msg.isNotEmpty()) main.post { listener?.onExtensionNotice(msg) }
+            }
+            "setWidget" -> {
+                val lines = record.optJSONArray("widgetLines")
+                val msg = StringBuilder()
+                for (i in 0 until (lines?.length() ?: 0)) msg.append(lines!!.optString(i)).append('\n')
+                if (msg.isNotEmpty()) main.post { listener?.onExtensionNotice(msg.toString().trim()) }
+            }
+            "set_editor_text" -> Unit
+            else -> main.post { listener?.onExtensionRequest(record) }
         }
     }
 
