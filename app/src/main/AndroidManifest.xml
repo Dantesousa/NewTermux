@@ -132,6 +132,37 @@
             android:parentActivityName=".app.activities.SettingsActivity"
             android:theme="@style/Theme.NewTermux" />
 
+        <!-- Painel do Pi (Nebula Pi): conversa com o agente dentro do app.
+             Nome fully-qualified: o namespace do projeto e "com.termux", entao
+             um nome relativo (.pi.PiActivity) resolveria para com.termux.pi.PiActivity
+             e a classe nao seria encontrada. -->
+        <activity
+            android:name="com.newtermux.pi.PiActivity"
+            android:exported="true"
+            android:icon="@drawable/ic_pi"
+            android:label="Nebula Pi"
+            android:parentActivityName=".app.TermuxActivity"
+            android:resizeableActivity="true"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.NewTermux"
+            tools:targetApi="n">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- Compartilhar texto ou imagem de outro app direto pro Pi. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+        </activity>
+
         <activity
             android:name=".shared.activities.ReportActivity"
             android:theme="@style/Theme.MarkdownViewActivity.DayNight"
