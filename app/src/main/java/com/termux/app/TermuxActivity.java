@@ -892,6 +892,18 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
             });
         }
 
+        // Nebula Pi: abre o painel do agente dentro do app
+        View btnPi = findViewById(R.id.btn_pi);
+        if (btnPi != null) {
+            btnPi.setOnClickListener(v -> {
+                try {
+                    startActivity(new Intent(TermuxActivity.this, com.newtermux.pi.PiActivity.class));
+                } catch (Exception e) {
+                    Toast.makeText(TermuxActivity.this, "Falha ao abrir o Nebula Pi", Toast.LENGTH_SHORT).show();
+                }
+            });
+        }
+
         // Session pip row
         mSessionPipContainer = findViewById(R.id.session_pip_container);
         updateSessionTabs();

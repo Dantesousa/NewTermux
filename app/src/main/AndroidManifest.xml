@@ -132,6 +132,23 @@
             android:parentActivityName=".app.activities.SettingsActivity"
             android:theme="@style/Theme.NewTermux" />
 
+        <!-- Painel do Pi (Nebula Pi): conversa com o agente dentro do app. -->
+        <activity
+            android:name=".pi.PiActivity"
+            android:exported="true"
+            android:icon="@drawable/ic_pi"
+            android:label="Nebula Pi"
+            android:parentActivityName=".app.TermuxActivity"
+            android:resizeableActivity="true"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.NewTermux"
+            tools:targetApi="n">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
         <activity
             android:name=".shared.activities.ReportActivity"
             android:theme="@style/Theme.MarkdownViewActivity.DayNight"
