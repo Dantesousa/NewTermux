@@ -8,6 +8,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.newtermux.features.NewTermuxTheme
 import org.json.JSONObject
 
 /** Um item da conversa exibida na tela do Pi. */
@@ -690,7 +691,7 @@ object PiSession {
     /** Troca o acento do app inteiro (o Termux tambem usa esse acento). */
     fun setAccent(color: Int) {
         val ctx = appContext ?: return
-        com.newtermux.features.NewTermuxTheme.setAccentColor(ctx, color)
+        NewTermuxTheme.setAccentColor(ctx, color)
         accentColor = color
         com.newtermux.compose.NewTermuxAccent.set(ctx, color)
         picker = null
@@ -698,8 +699,7 @@ object PiSession {
 
     /** Cores de destaque disponiveis (inclui as presets do Termux + Nebula). */
     fun accentOptions(): List<Pair<Int, String>> {
-        val theme = com.newtermux.features.NewTermuxTheme
-        return theme.COLORS.mapIndexed { i, c -> c to theme.COLOR_NAMES[i] }
+        return NewTermuxTheme.COLORS.mapIndexed { i, c -> c to NewTermuxTheme.COLOR_NAMES[i] }
     }
 
     /** Comeca uma sessao nova (o Pi cria o arquivo quando houver atividade). */
@@ -823,7 +823,7 @@ object PiSession {
 
     fun attachContext(context: Context) {
         appContext = context.applicationContext
-        accentColor = com.newtermux.features.NewTermuxTheme.getAccentColor(appContext!!)
+        accentColor = NewTermuxTheme.getAccentColor(appContext!!)
         com.newtermux.compose.NewTermuxAccent.load(appContext!!)
         PiNotify.ensureChannel(appContext!!)
     }
