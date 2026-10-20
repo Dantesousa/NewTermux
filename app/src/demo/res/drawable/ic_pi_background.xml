@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Demo: nebulosa petroleo/ciano, mesma paleta do icone principal do demo. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <gradient
+        android:type="linear"
+        android:angle="135"
+        android:startColor="#051018"
+        android:centerColor="#0A3E52"
+        android:endColor="#0D7888" />
+</shape>

@@ -1,0 +1,33 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:height="108dp"
+    android:width="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Caractere pi (pi) do Pi, em branco sobre a nebulosa. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M66.37 33.66V38.46H32V33.66ZM43.13 33.66V67.59H37.3V33.66ZM55.68 33.66H61.51V58.94Q61.51 60.66 62.04 61.54Q62.57 62.42 63.42 62.72Q64.27 63.01 65.24 63.01Q65.96 63.01 66.76 62.87Q67.56 62.73 67.97 62.64L68 67.34Q67.31 67.56 66.2 67.78Q65.08 68 63.52 68Q61.38 68 59.6 67.14Q57.81 66.28 56.74 64.28Q55.68 62.29 55.68 58.91Z"
+        />
+
+    <!-- Cursor embaixo, ecoando o >_ do Termux. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M58,64 h18 v4 h-18 z"
+        />
+
+    <!-- Estrelas brilhantes da nebulosa. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.9"
+        android:pathData="M65.3,76.2 h2.6 v2.6 h-2.6 z M94.7,76.1 h2.7 v2.7 h-2.7 z M10.7,50.8 h2.7 v2.7 h-2.7 z M96.5,57.6 h2.4 v2.4 h-2.4 z M26.8,94.6 h2.4 v2.4 h-2.4 z M36.5,83.3 h2.2 v2.2 h-2.2 z M72.8,13.2 h2.8 v2.8 h-2.8 z M10.1,77.0 h2.6 v2.6 h-2.6 z M95.9,26.1 h2.5 v2.5 h-2.5 z M79.4,17.9 h2.5 v2.5 h-2.5 z M39.3,93.0 h2.3 v2.3 h-2.3 z M12.5,98.8 h2.2 v2.2 h-2.2 z M85,39.4 h6 v1.2 h-6 z M87.4,37 h1.2 v6 h-1.2 z M19,85.4 h6 v1.2 h-6 z M21.4,83 h1.2 v6 h-1.2 z"
+        />
+
+    <!-- Estrelas suaves da nebulosa. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.65"
+        android:pathData="M67.7,90.9 h1.7 v1.7 h-1.7 z M9.2,27.9 h1.9 v1.9 h-1.9 z M22.7,81.3 h1.8 v1.8 h-1.8 z M64.8,19.7 h1.6 v1.6 h-1.6 z M88.2,27.3 h1.9 v1.9 h-1.9 z M98.4,88.3 h1.9 v1.9 h-1.9 z M23.3,21.4 h1.7 v1.7 h-1.7 z M8.3,70.4 h2.0 v2.0 h-2.0 z M8.8,12.3 h1.8 v1.8 h-1.8 z M93.5,94.7 h2.0 v2.0 h-2.0 z M81.3,87.1 h1.6 v1.6 h-1.6 z M95.0,16.4 h2.0 v2.0 h-2.0 z M24.3,15.2 h1.8 v1.8 h-1.8 z M71.4,99.7 h1.8 v1.8 h-1.8 z"
+        />
+
+</vector>

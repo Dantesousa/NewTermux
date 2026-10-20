@@ -139,7 +139,7 @@
         <activity
             android:name="com.newtermux.pi.PiActivity"
             android:exported="true"
-            android:icon="@drawable/ic_pi"
+            android:icon="@mipmap/ic_pi_launcher"
             android:label="Nebula Pi"
             android:parentActivityName=".app.TermuxActivity"
             android:resizeableActivity="true"
