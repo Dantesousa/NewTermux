@@ -4,45 +4,28 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Glyph >_ do terminal (mantido do Termux) em branco sobre a nebulosa. -->
+    <!-- Glyph >_ do terminal em branco sobre a nebulosa. -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M34,38
-                          h6
-                          l12,16
-                          l-12,16
-                          h-6
-                          l12,-16
-                          "
+        android:pathData="M34,38 h6 l12,16 l-12,16 h-6 l12,-16 z"
         />
-
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M56,66
-                          h18
-                          v4
-                          h-18
-                          "
+        android:pathData="M56,66 h18 v4 h-18 z"
         />
 
     <!-- Estrelas brilhantes da nebulosa. -->
     <path
         android:fillColor="#FFFFFF"
         android:fillAlpha="0.9"
-        android:pathData="M78,24 h2.5 v2.5 h-2.5 z
-                          M16,62 h2.5 v2.5 h-2.5 z"
+        android:pathData="M59.9,21.0 h2.4 v2.4 h-2.4 z M38.9,92.6 h2.6 v2.6 h-2.6 z M98.3,82.0 h2.2 v2.2 h-2.2 z M18.7,79.9 h2.4 v2.4 h-2.4 z M64.5,9.6 h2.5 v2.5 h-2.5 z M14.8,48.0 h2.7 v2.7 h-2.7 z M19.0,90.4 h2.5 v2.5 h-2.5 z M41.5,83.9 h2.7 v2.7 h-2.7 z M87.0,64.9 h2.7 v2.7 h-2.7 z M34.7,82.2 h2.5 v2.5 h-2.5 z M97.2,59.7 h2.3 v2.3 h-2.3 z M20.7,9.4 h2.4 v2.4 h-2.4 z M42.9,18.5 h2.2 v2.2 h-2.2 z M27.2,95.6 h2.5 v2.5 h-2.5 z M87,35.4 h6 v1.2 h-6 z M89.4,33 h1.2 v6 h-1.2 z M14,89.4 h6 v1.2 h-6 z M16.4,87 h1.2 v6 h-1.2 z"
         />
 
     <!-- Estrelas suaves da nebulosa. -->
     <path
         android:fillColor="#FFFFFF"
         android:fillAlpha="0.65"
-        android:pathData="M88,52 h2 v2 h-2 z
-                          M22,30 h2 v2 h-2 z
-                          M80,80 h2 v2 h-2 z
-                          M60,20 h1.8 v1.8 h-1.8 z
-                          M30,84 h2 v2 h-2 z
-                          M92,72 h1.8 v1.8 h-1.8 z"
+        android:pathData="M8.4,11.8 h1.9 v1.9 h-1.9 z M71.0,24.7 h1.7 v1.7 h-1.7 z M28.7,81.2 h1.9 v1.9 h-1.9 z M78.8,9.4 h2.1 v2.1 h-2.1 z M86.0,98.8 h2.0 v2.0 h-2.0 z M42.5,13.5 h2.0 v2.0 h-2.0 z M88.1,24.2 h2.1 v2.1 h-2.1 z M61.3,87.4 h2.0 v2.0 h-2.0 z M101.5,91.7 h1.6 v1.6 h-1.6 z M71.4,17.3 h1.9 v1.9 h-1.9 z"
         />
 
 </vector>
