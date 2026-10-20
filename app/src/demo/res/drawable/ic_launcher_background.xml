@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Fundo do icone adaptativo do demo: mesma composicao, paleta petroleo/ciano
+     para distinguir do Nebula original no launcher. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <gradient
+        android:type="linear"
+        android:angle="135"
+        android:startColor="#05161E"
+        android:centerColor="#0A3E52"
+        android:endColor="#0D9488" />
+</shape>

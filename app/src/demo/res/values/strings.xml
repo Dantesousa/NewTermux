@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- O demo instala lado a lado (com.termux.demo): nome proprio no launcher. -->
+    <string name="application_name">Nebula Demo</string>
+
+</resources>
