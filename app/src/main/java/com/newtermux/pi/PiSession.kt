@@ -282,6 +282,13 @@ object PiSession {
 
     private fun handleResponse(command: String, data: JSONObject?) {
         when (command) {
+            "prompt" -> {
+                // Mensagem enviada no meio da execucao vai como steer: o Pi
+                // enfileira ("queued") e entrega na proxima volta sozinho.
+                if (data?.optString("disposition") == "queued") {
+                    items.add(PiItem.Notice("Na fila — entra na proxima resposta", error = false))
+                }
+            }
             "get_state" -> {
                 val m = data?.optJSONObject("model")
                 val id = m?.optString("id")?.takeIf { it.isNotEmpty() }
@@ -664,8 +671,13 @@ object PiSession {
         thinkingIndex = -1
         assistantBuffer.setLength(0)
         thinkingBuffer.setLength(0)
+        // Se o Pi esta no meio de uma execucao, a mensagem vai como steer:
+        // entra automaticamente na proxima volta em vez de dar erro e se perder.
+        // Comandos de extensao ("/...") executam imediato mesmo em streaming,
+        // entao nao levam streamingBehavior.
+        val steer = busy && !message.startsWith("/")
         busy = true
-        if (!client.sendPrompt(message, images)) {
+        if (!client.sendPrompt(message, images, if (steer) "steer" else null)) {
             // A conexao estava morta: guarda e reenvia assim que reconectar.
             pendingPrompt = message to images
             start()

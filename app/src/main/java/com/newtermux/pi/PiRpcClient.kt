@@ -205,12 +205,15 @@ class PiRpcClient(private val port: Int = PiSession.DEFAULT_PORT) {
     /**
      * Envia um prompt.
      * [images] e opcional: lista de (mimeType, base64 sem prefixo data:).
+     * [streamingBehavior] so vai quando o agente ja esta rodando: "steer"
+     * enfileira para a proxima volta, sem derrubar nem perder a mensagem.
      * Retorna false se nem deu para enfileirar (sem conexao).
      */
-    fun sendPrompt(text: String, images: List<Pair<String, String>> = emptyList()): Boolean {
+    fun sendPrompt(text: String, images: List<Pair<String, String>> = emptyList(), streamingBehavior: String? = null): Boolean {
         val payload = JSONObject()
         payload.put("type", "prompt")
         payload.put("message", text)
+        if (streamingBehavior != null) payload.put("streamingBehavior", streamingBehavior)
         if (images.isNotEmpty()) {
             val arr = org.json.JSONArray()
             for ((mime, data) in images) {
