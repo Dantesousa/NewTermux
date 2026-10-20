@@ -4,7 +4,18 @@ set -euo pipefail
 
 HOME_DIR="${HOME}"
 RUNTIME_DIR="${NEBULA_PI_RUNTIME_DIR:-$HOME_DIR/.cache/nebula-pi}"
-DAEMON="$HOME_DIR/work/nebula-pi/daemon/pi-rpc-daemon.mjs"
+# Daemon versionado no repo; aceita os dois espelhos (repo e dir dev).
+if [ -n "${NEBULA_PI_DAEMON:-}" ]; then
+  DAEMON="$NEBULA_PI_DAEMON"
+elif [ -f "$HOME_DIR/work/NewTermux/pi-daemon/pi-rpc-daemon.mjs" ]; then
+  DAEMON="$HOME_DIR/work/NewTermux/pi-daemon/pi-rpc-daemon.mjs"
+else
+  DAEMON="$HOME_DIR/work/nebula-pi/daemon/pi-rpc-daemon.mjs"
+fi
+
+# Mantem o processo vivo quando o app vai pro fundo (o Android mata facil).
+# Nao falha se o termux-wake-lock nao existir.
+termux-wake-lock 2>/dev/null || true
 
 # O node do pi-node e build glibc linux-arm64 e NAO roda no Termux (bionic):
 # execve falha com ENOENT e o sh segue para o proximo PATH. O que funciona de
@@ -35,7 +46,14 @@ echo "node: $NODE_BIN ($("$NODE_BIN" -v))"
 mkdir -p "$RUNTIME_DIR"
 
 PORT="${NEBULA_PI_PORT:-37877}"
-PROBE="$HOME_DIR/work/nebula-pi/daemon/pi-probe.mjs"
+SCRIPT_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"
+if [ -f "$SCRIPT_DIR/pi-probe.mjs" ]; then
+  PROBE="$SCRIPT_DIR/pi-probe.mjs"
+elif [ -f "$HOME_DIR/work/NewTermux/pi-daemon/pi-probe.mjs" ]; then
+  PROBE="$HOME_DIR/work/NewTermux/pi-daemon/pi-probe.mjs"
+else
+  PROBE="$HOME_DIR/work/nebula-pi/daemon/pi-probe.mjs"
+fi
 
 # ja esta rodando?
 if [ -f "$RUNTIME_DIR/port" ] && [ -f "$RUNTIME_DIR/daemon.pid" ]; then

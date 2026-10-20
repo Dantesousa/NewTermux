@@ -156,6 +156,11 @@ object PiSession {
     /** Prompt (e anexos) que nao conseguiu sair porque a conexao tinha morrido. */
     private var pendingPrompt: Pair<String, List<Pair<String, String>>>? = null
 
+    /** Auto-start do daemon: quantas vezes ja tentamos subir sozinho. */
+    private var autoStartTries = 0
+    private var autoStartInFlight = false
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
     private val models = mutableStateListOf<PiModelChoice>()
     private val thinkingLevels = mutableStateListOf<String>()
 
@@ -194,7 +199,43 @@ object PiSession {
         override fun onDisconnected(reason: String?) {
             connected = false
             busy = false
-            status = reason ?: "desconectado"
+            val msg = reason ?: "desconectado"
+            val ctx = appContext
+            // Falha de conexao (timeout/recusada): tenta subir o daemon sozinho
+            // via TermuxService antes de desistir. Fecha normal nao retenta.
+            val shouldAuto = ctx != null && !autoStartInFlight && autoStartTries < 3 &&
+                (msg.contains("timeout", ignoreCase = true) ||
+                 msg.contains("recus", ignoreCase = true) ||
+                 msg.contains("failed", ignoreCase = true) ||
+                 msg.contains("refused", ignoreCase = true) ||
+                 msg.contains("daemon", ignoreCase = true) ||
+                 msg == "desconectado")
+            if (shouldAuto) {
+                autoStartInFlight = true
+                autoStartTries++
+                status = "subindo daemon (tentativa $autoStartTries/3)..."
+                items.add(PiItem.Notice("Sem conexao — subindo daemon sozinho (tentativa $autoStartTries/3)...", error = false))
+                Thread {
+                    val sent = PiDaemon.ensureRunning(ctx!!)
+                    try { Thread.sleep(2500) } catch (_: Exception) {}
+                    mainHandler.post {
+                        autoStartInFlight = false
+                        if (!client.isConnected()) {
+                            status = "conectando..."
+                            client.connect(listener)
+                            if (!sent && autoStartTries >= 3) {
+                                items.add(PiItem.Notice("Não consegui subir sozinho. Rode 'pi-rpc' no Termux e toque em reconectar.", error = true))
+                            }
+                        }
+                    }
+                }.apply {
+                    isDaemon = true
+                    name = "pi-daemon-autostart"
+                    start()
+                }
+                return
+            }
+            status = msg
             items.add(PiItem.Notice(status, error = true))
         }
 
@@ -757,6 +798,8 @@ object PiSession {
             connected = true
             return
         }
+        // Toque manual em reconectar libera novo ciclo de auto-start.
+        if (!autoStartInFlight) autoStartTries = 0
         status = "conectando..."
         client.connect(listener)
     }

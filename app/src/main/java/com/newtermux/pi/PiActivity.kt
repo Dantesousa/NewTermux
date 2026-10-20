@@ -1052,7 +1052,8 @@ private fun EmptyState() {
         Spacer(Modifier.height(8.dp))
         Text(
             if (PiSession.connected) "Conectado. Manda o que voce precisa."
-            else "Sem conexao com o daemon do Pi.\nRode 'pi-rpc' no Termux e toque em reconectar.",
+            else if (PiSession.status.startsWith("subindo") || PiSession.status == "conectando...") PiSession.status + "\nAguarde, estou subindo o daemon sozinho."
+            else "Sem conexao com o daemon do Pi.\nEstou tentando subir sozinho — se falhar, rode 'pi-rpc' no Termux e toque em reconectar.",
             fontSize = 13.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center
