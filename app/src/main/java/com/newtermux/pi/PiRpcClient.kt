@@ -10,6 +10,8 @@ import java.io.OutputStream
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.nio.charset.StandardCharsets
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -22,6 +24,9 @@ import java.util.concurrent.atomic.AtomicInteger
  * UID) — TCP em localhost funciona entre UIDs diferentes.
  *
  * Cuidados de implementacao:
+ * - NUNCA escrever no socket na main thread: o Android joga
+ *   NetworkOnMainThreadException. Toda a I/O de rede acontece em threads
+ *   dedicadas; a main thread so enfileira o payload.
  * - Nao usar PrintWriter: ele engole IOException e esconde pipe quebrado.
  * - Campos de socket sao @Volatile e existe um "generation" para que uma
  *   thread antiga nao feche o socket de uma conexao nova.
@@ -64,13 +69,22 @@ class PiRpcClient(private val port: Int = PiSession.DEFAULT_PORT) {
     private var closing = false
 
     private var readerThread: Thread? = null
+    private var writerThread: Thread? = null
     private var listener: Listener? = null
+
+    /** Fila de escritas: a thread de escrita faz o I/O de verdade. */
+    private val writeQueue = LinkedBlockingQueue<ByteArray>()
+
+    // ------------------------------------------------------------- conexao
 
     /** Conecta no daemon. Não bloqueia: roda em thread própria. */
     fun connect(l: Listener) {
         listener = l
         val gen = ++generation
         closing = false
+        writeQueue.clear()
+
+        startWriter(gen)
 
         readerThread = Thread {
             var sock: Socket? = null
@@ -126,15 +140,64 @@ class PiRpcClient(private val port: Int = PiSession.DEFAULT_PORT) {
             }
         }.apply {
             isDaemon = true
-            name = "pi-rpc-client"
+            name = "pi-rpc-reader"
             start()
         }
     }
 
     /**
+     * Thread dedicada a escrita no socket. Toda a I/O de rede acontece aqui,
+     * nunca na main thread (NetworkOnMainThreadException).
+     */
+    private fun startWriter(gen: Int) {
+        writerThread = Thread {
+            while (gen == generation && !closing) {
+                val bytes = try {
+                    writeQueue.poll(300, TimeUnit.MILLISECONDS)
+                } catch (e: InterruptedException) {
+                    null
+                } ?: continue
+
+                var attempts = 0
+                var sent = false
+                while (!sent && gen == generation && !closing && attempts < 40) {
+                    val stream = synchronized(sendLock) { out }
+                    if (stream == null) {
+                        // socket ainda nao pronto: espera e tenta de novo
+                        attempts++
+                        try {
+                            Thread.sleep(50)
+                        } catch (e: InterruptedException) {
+                            break
+                        }
+                        continue
+                    }
+                    try {
+                        stream.write(bytes)
+                        stream.flush()
+                        sent = true
+                    } catch (e: Exception) {
+                        Log.e(TAG, "falha ao escrever no daemon do Pi", e)
+                        main.post { listener?.onDisconnected(describe(e)) }
+                        break
+                    }
+                }
+            }
+        }.apply {
+            isDaemon = true
+            name = "pi-rpc-writer"
+            start()
+        }
+    }
+
+    fun isConnected(): Boolean = connected
+
+    // ------------------------------------------------------------- comandos
+
+    /**
      * Envia um prompt.
      * [images] e opcional: lista de (mimeType, base64 sem prefixo data:).
-     * Retorna false se nem deu para escrever (a conexao morreu).
+     * Retorna false se nem deu para enfileirar (sem conexao).
      */
     fun sendPrompt(text: String, images: List<Pair<String, String>> = emptyList()): Boolean {
         val payload = JSONObject()
@@ -165,29 +228,20 @@ class PiRpcClient(private val port: Int = PiSession.DEFAULT_PORT) {
         return id
     }
 
-    /** Escreve um registro JSONL no socket. */
+    /** Enfileira um registro JSONL. Nao faz I/O de rede (thread main). */
     private fun send(payload: JSONObject): Boolean {
-        val bytes = (payload.toString() + "\n").toByteArray(StandardCharsets.UTF_8)
-        try {
-            synchronized(sendLock) {
-                val stream = out
-                if (stream == null) {
-                    Log.w(TAG, "sem conexao: prompt descartado")
-                    main.post { listener?.onProtocolError("sem conexao com o daemon (rode 'pi-rpc' no Termux)") }
-                    return false
-                }
-                stream.write(bytes)
-                stream.flush()
-            }
-            return true
-        } catch (e: Exception) {
-            Log.e(TAG, "falha ao escrever no daemon do Pi", e)
-            main.post { listener?.onDisconnected(describe(e)) }
+        if (!connected) {
+            Log.w(TAG, "sem conexao: comando descartado")
+            main.post { listener?.onProtocolError("sem conexao com o daemon (rode 'pi-rpc' no Termux)") }
             return false
         }
+        val bytes = (payload.toString() + "\n").toByteArray(StandardCharsets.UTF_8)
+        if (!writeQueue.offer(bytes)) {
+            main.post { listener?.onProtocolError("fila de escrita cheia") }
+            return false
+        }
+        return true
     }
-
-    fun isConnected(): Boolean = connected
 
     // ------------------------------------------------------------- eventos
 
@@ -280,17 +334,25 @@ class PiRpcClient(private val port: Int = PiSession.DEFAULT_PORT) {
     fun disconnect() {
         closing = true
         generation++
-        synchronized(sendLock) {
-            try {
-                out?.close()
-            } catch (_: Exception) {
+        writeQueue.clear()
+        // Fechar o socket tambem e I/O: fora da main thread.
+        Thread {
+            synchronized(sendLock) {
+                try {
+                    out?.close()
+                } catch (_: Exception) {
+                }
+                try {
+                    socket?.close()
+                } catch (_: Exception) {
+                }
+                out = null
+                socket = null
             }
-            try {
-                socket?.close()
-            } catch (_: Exception) {
-            }
-            out = null
-            socket = null
+        }.apply {
+            isDaemon = true
+            name = "pi-rpc-close"
+            start()
         }
         connected = false
     }
