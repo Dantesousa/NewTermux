@@ -31,14 +31,13 @@ jobs:
       - name: Build APKs
         run: |
           chmod +x ./gradlew
-          ./gradlew assembleDebug assembleDemo
+          ./gradlew assembleDebug
 
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             app/build/outputs/apk/debug/*.apk
-            app/build/outputs/apk/demo/*.apk
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           prerelease: ${{ contains(github.ref_name, '-pre') }}
           generate_release_notes: true
@@ -52,9 +51,7 @@ jobs:
             - `x86_64` / `x86` — emulators and x86 devices
             - `universal` — works on all devices (larger file size)
 
-            ### Try Before You Switch
-            Download `newtermux-test-coexist_..._universal.apk` to try NewTermux **without** uninstalling Termux. It installs as a separate app (`com.termux.demo`), lets you explore all Settings and UI features, and runs a harmless demo shell. When ready to fully switch, uninstall it and install the main APK.
-
             > **Note:** The main NewTermux APKs use the `com.termux` package name for full binary compatibility. Uninstall the original Termux before installing the main build.
+            > Demo (`com.termux.demo`) is only built on big updates requiring extra testing — trigger manually via Build workflow with `build_demo=true`.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

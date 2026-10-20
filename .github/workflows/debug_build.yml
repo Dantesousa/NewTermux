@@ -10,6 +10,12 @@ on:
   pull_request:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      build_demo:
+        description: 'Build demo flavor too? (big updates only)'
+        required: false
+        default: 'false'
 
 jobs:
   build:
@@ -134,10 +140,10 @@ jobs:
             ${{ env.APK_DIR_PATH }}/${{ env.APK_BASENAME_PREFIX }}_sha256sums
             ${{ env.APK_DIR_PATH }}/output-metadata.json
 
-  # Build do flavor demo (com.termux.demo): instala lado a lado com o Termux
-  # de verdade, sem conflito de assinatura. Serve para testar o Nebula Pi
-  # (painel do Pi) sem arriscar o ambiente instalado.
+  # Build do flavor demo (com.termux.demo): SO em updates grandes.
+  # Nao roda no push automatico — dispara manual via workflow_dispatch com build_demo=true.
   build-demo:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.build_demo == 'true'
     runs-on: ubuntu-latest
 
     steps:
