@@ -132,9 +132,12 @@
             android:parentActivityName=".app.activities.SettingsActivity"
             android:theme="@style/Theme.NewTermux" />
 
-        <!-- Painel do Pi (Nebula Pi): conversa com o agente dentro do app. -->
+        <!-- Painel do Pi (Nebula Pi): conversa com o agente dentro do app.
+             Nome fully-qualified: o namespace do projeto e "com.termux", entao
+             um nome relativo (.pi.PiActivity) resolveria para com.termux.pi.PiActivity
+             e a classe nao seria encontrada. -->
         <activity
-            android:name=".pi.PiActivity"
+            android:name="com.newtermux.pi.PiActivity"
             android:exported="true"
             android:icon="@drawable/ic_pi"
             android:label="Nebula Pi"

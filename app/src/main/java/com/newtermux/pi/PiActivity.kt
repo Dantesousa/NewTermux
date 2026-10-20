@@ -1,6 +1,7 @@
 package com.newtermux.pi
 
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -60,10 +61,24 @@ class PiActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        installCrashLogger()
         setContent {
             NewTermuxComposeTheme(this) {
                 PiScreen()
             }
+        }
+    }
+
+    /**
+     * Loga qualquer crash no logcat (tag NebulaPi) antes de delegar ao
+     * handler padrao. O Termux consegue ler o logcat do sistema, entao da
+     * para diagnosticar o app demo (com.termux.demo) de fora.
+     */
+    private fun installCrashLogger() {
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, error ->
+            Log.e(TAG, "CRASH na thread ${thread.name}", error)
+            previous?.uncaughtException(thread, error)
         }
     }
 
@@ -75,6 +90,10 @@ class PiActivity : ComponentActivity() {
     override fun onStop() {
         super.onStop()
         PiSession.stop()
+    }
+
+    companion object {
+        private const val TAG = "NebulaPi"
     }
 }
 

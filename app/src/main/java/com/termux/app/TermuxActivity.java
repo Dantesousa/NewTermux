@@ -899,6 +899,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
                 try {
                     startActivity(new Intent(TermuxActivity.this, com.newtermux.pi.PiActivity.class));
                 } catch (Exception e) {
+                    Logger.logStackTraceWithMessage(LOG_TAG, "Falha ao abrir o Nebula Pi", e);
                     Toast.makeText(TermuxActivity.this, "Falha ao abrir o Nebula Pi", Toast.LENGTH_SHORT).show();
                 }
             });
