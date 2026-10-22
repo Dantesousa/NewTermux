@@ -153,6 +153,19 @@ object PiSession {
     private val assistantBuffer = StringBuilder()
     private val thinkingBuffer = StringBuilder()
 
+    /** Caminhos inseridos via mencao @, aguardando o envio. */
+    private val mentionedPaths = mutableSetOf<String>()
+
+    /** Para a execucao atual (botao stop durante o streaming). */
+    fun abort() {
+        client.request("abort")
+    }
+
+    /** Registra um caminho inserido via @ pra virar ref no envio. */
+    fun noteMentionedPath(path: String) {
+        if (path.isNotBlank()) mentionedPaths.add(path)
+    }
+
     /** Prompt (e anexos) que nao conseguiu sair porque a conexao tinha morrido. */
     private var pendingPrompt: Pair<String, List<Pair<String, String>>>? = null
 
@@ -846,6 +859,31 @@ object PiSession {
         }
 
         var message = trimmed
+        // @-mencoes: so vira ref se o caminho continua no texto (se o
+        // usuario apagou, ignora). Limpa o pendente de qualquer jeito.
+        val it = mentionedPaths.iterator()
+        while (it.hasNext()) {
+            val p = it.next()
+            if (message.contains(p) && !refs.contains(p)) refs.add(p)
+            it.remove()
+        }
+        // Caminhos absolutos colados no texto viram ref sozinhos.
+        if (refs.size < 10) {
+            message.split(Regex("\\s+"))
+                .map { tok -> tok.trim().trimEnd('.', ',', ';', ':', '!', '?', ')', ']', '"', '\'') }
+                .filter { tok -> tok.startsWith("/") && tok.length in 2..300 }
+                .distinct()
+                .take(10 - refs.size)
+                .forEach { cand ->
+                    try {
+                        val f = java.io.File(cand)
+                        if (f.isFile && f.canRead() && f.length() < 20L * 1024 * 1024 && !refs.contains(cand)) {
+                            refs.add(cand)
+                        }
+                    } catch (_: Exception) {
+                    }
+                }
+        }
         if (refs.isNotEmpty()) {
             val list = refs.joinToString("\n") { "- $it" }
             message = if (message.isEmpty()) "Leia o(s) arquivo(s) anexado(s):\n$list"

@@ -747,3 +747,72 @@ private fun CodeBlockView(lang: String, code: String, baseCode: Color) {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Texto mono com diff colorido (saida de tools / bash)
+// ---------------------------------------------------------------------------
+
+private fun isDiffLine(line: String): Boolean {
+    return line.startsWith("@@") ||
+        (line.startsWith("+") && !line.startsWith("+++")) ||
+        (line.startsWith("-") && !line.startsWith("---"))
+}
+
+/**
+ * Saida de tool/bash em monoespacado, com linhas de diff coloridas
+ * (+ verde, - vermelho, @@ ciano) e expansao quando passa de [collapsedLines].
+ */
+@Composable
+fun DiffAwareMonoText(
+    text: String,
+    collapsedLines: Int = 12,
+    modifier: Modifier = Modifier,
+) {
+    var expanded by remember(text) { mutableStateOf(false) }
+    val lines = remember(text) { text.split("\n") }
+    val hasDiff = remember(text) { lines.any { isDiffLine(it) } }
+    val shown = if (expanded || lines.size <= collapsedLines) lines else lines.take(collapsedLines)
+    val hidden = lines.size - shown.size
+
+    SelectionContainer {
+        Column(modifier = modifier.fillMaxWidth()) {
+            shown.forEach { line -> DiffLine(line, hasDiff) }
+            if (hidden > 0 || expanded) {
+                TextButton(
+                    onClick = { expanded = !expanded },
+                    modifier = Modifier.padding(top = 2.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                ) {
+                    Text(
+                        if (expanded) "recolher" else "··· $hidden linhas a mais — expandir",
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DiffLine(line: String, hasDiff: Boolean) {
+    val cs = MaterialTheme.colorScheme
+    val color = when {
+        !hasDiff -> cs.onSurfaceVariant.copy(alpha = 0.75f)
+        line.startsWith("+++") || line.startsWith("---") ->
+            cs.onSurfaceVariant.copy(alpha = 0.9f)
+        line.startsWith("@@") -> Color(0xFF80CBC4)
+        line.startsWith("+") -> Color(0xFF9CCC65)
+        line.startsWith("-") -> Color(0xFFEF9A9A)
+        else -> cs.onSurfaceVariant.copy(alpha = 0.7f)
+    }
+    val bold = hasDiff && (line.startsWith("+++") || line.startsWith("---") || line.startsWith("@@"))
+    Text(
+        line.ifEmpty { " " },
+        fontSize = 11.sp,
+        fontFamily = FontFamily.Monospace,
+        color = color,
+        fontWeight = if (bold) FontWeight.Bold else null,
+        lineHeight = 15.sp
+    )
+}

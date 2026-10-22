@@ -19,6 +19,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.rememberTransformableState
+import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -43,15 +45,19 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.CircularProgressIndicator
@@ -69,6 +75,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -80,14 +87,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import com.newtermux.compose.NewTermuxComposeTheme
+import com.newtermux.features.SpeechInputManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -201,6 +214,8 @@ class PiActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        PiTts.stop()
+        PiTts.shutdown()
         PiSession.shutdown()
     }
 
@@ -213,6 +228,8 @@ class PiActivity : ComponentActivity() {
 @Composable
 fun PiScreen() {
     var input by remember { mutableStateOf("") }
+    var listening by remember { mutableStateOf(false) }
+    var viewerImage by remember { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -296,6 +313,65 @@ fun PiScreen() {
         }
     }
 
+    // ------------------------------------------------------------ voz (microfone)
+
+    val speech = remember(context) { SpeechInputManager(context) }
+    DisposableEffect(speech) {
+        onDispose { speech.destroy() }
+    }
+
+    fun startListening() {
+        if (!SpeechInputManager.isAvailable(context)) {
+            notice("Reconhecimento de voz indisponivel neste aparelho")
+            return
+        }
+        speech.setCallback(object : SpeechInputManager.SpeechCallback {
+            override fun onResult(text: String) {
+                input = if (input.isBlank()) text else input.trimEnd() + " " + text
+                listening = false
+            }
+
+            override fun onError(error: String) {
+                notice("Microfone: $error")
+                listening = false
+            }
+
+            override fun onListeningStarted() {
+                listening = true
+            }
+
+            override fun onListeningStopped() {
+                listening = false
+            }
+        })
+        try {
+            speech.startListening()
+        } catch (e: Exception) {
+            notice("Nao consegui abrir o microfone")
+            listening = false
+        }
+    }
+
+    val micPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) startListening()
+        else notice("Permissao de microfone negada")
+    }
+
+    fun tapMic() {
+        if (listening) {
+            speech.stopListening()
+            listening = false
+            return
+        }
+        val granted = ContextCompat.checkSelfPermission(
+            context, Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+        if (granted) startListening()
+        else micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+    }
+
     // ------------------------------------------------------------ tela
 
     Scaffold(
@@ -348,6 +424,14 @@ fun PiScreen() {
                         .imePadding()
                         .navigationBarsPadding()
                 ) {
+                    SlashSuggestions(input) { cmd ->
+                        PiSession.runCommand(cmd)
+                        input = ""
+                    }
+                    MentionSuggestions(input, onPick = { path, start, end ->
+                        input = input.substring(0, start) + path + " " + input.substring(end)
+                        PiSession.noteMentionedPath(path)
+                    })
                     if (PiSession.attachments.isNotEmpty()) {
                         Row(
                             modifier = Modifier
@@ -400,16 +484,39 @@ fun PiScreen() {
                         IconButton(onClick = { pickDocument() }) {
                             Icon(Icons.Default.Description, contentDescription = "Anexar documento")
                         }
+                        IconButton(onClick = { tapMic() }) {
+                            Icon(
+                                Icons.Default.Mic,
+                                contentDescription = if (listening) "Parar de ouvir" else "Ditar",
+                                tint = if (listening) MaterialTheme.colorScheme.error
+                                else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                         OutlinedTextField(
                             value = input,
                             onValueChange = { input = it },
                             modifier = Modifier.weight(1f),
-                            placeholder = { Text("Fale com o Pi...", fontSize = 14.sp) },
+                            placeholder = {
+                                Text(
+                                    if (listening) "Ouvindo... fale agora"
+                                    else "Fale com o Pi... (/ comandos, @ arquivo)",
+                                    fontSize = 14.sp
+                                )
+                            },
                             textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp),
                             maxLines = 5,
                             shape = RoundedCornerShape(18.dp)
                         )
                         Spacer(Modifier.width(4.dp))
+                        if (PiSession.busy) {
+                            IconButton(onClick = { PiSession.abort() }) {
+                                Icon(
+                                    Icons.Default.Stop,
+                                    contentDescription = "Parar",
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                            }
+                        }
                         IconButton(
                             onClick = {
                                 val text = input.trim()
@@ -443,7 +550,7 @@ fun PiScreen() {
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     itemsIndexed(PiSession.items) { index, item ->
-                        PiItemView(index, item)
+                        PiItemView(index, item, onOpenImage = { viewerImage = it })
                     }
                 }
             }
@@ -468,6 +575,10 @@ fun PiScreen() {
 
     PiSession.extDialog?.let { dialog ->
         ExtensionDialog(dialog)
+    }
+
+    viewerImage?.let { base64 ->
+        ImageViewerDialog(base64 = base64, onClose = { viewerImage = null })
     }
 }
 
@@ -1066,28 +1177,29 @@ private fun EmptyState() {
 }
 
 @Composable
-private fun PiItemView(index: Int, item: PiItem) {
+private fun PiItemView(index: Int, item: PiItem, onOpenImage: (String) -> Unit) {
     when (item) {
-        is PiItem.User -> UserBubble(item.text, item.images)
-        is PiItem.Assistant -> AssistantBubble(item.text, item.images)
+        is PiItem.User -> UserBubble("user-$index", item.text, item.images, onOpenImage)
+        is PiItem.Assistant -> AssistantBubble("asst-$index", item.text, item.images, onOpenImage)
         is PiItem.Thinking -> ThinkingBlock(index, item.text)
-        is PiItem.Tool -> ToolChip(item.name, item.running, item.text, item.images)
+        is PiItem.Tool -> ToolChip(item.name, item.running, item.text, item.images, onOpenImage)
         is PiItem.Bash -> BashBlock(item.text)
         is PiItem.Notice -> NoticeLine(item.text, item.error)
     }
 }
 
-/** Miniatura de imagem anexada (base64 puro). */
+/** Miniatura de imagem anexada (base64 puro). Toque abre em tela cheia. */
 @Composable
-private fun PiImageThumb(base64: String) {
+private fun PiImageThumb(base64: String, onOpen: ((String) -> Unit)? = null) {
     val bitmap = remember(base64) { decodeImage(base64) }
     if (bitmap != null) {
         Image(
             bitmap = bitmap.asImageBitmap(),
-            contentDescription = "imagem",
+            contentDescription = "imagem (toque pra ampliar)",
             modifier = Modifier
                 .widthIn(max = 260.dp)
                 .clip(RoundedCornerShape(10.dp))
+                .then(if (onOpen != null) Modifier.clickable { onOpen(base64) } else Modifier)
         )
     }
 }
@@ -1112,7 +1224,12 @@ private fun decodeImage(base64: String): Bitmap? {
 }
 
 @Composable
-private fun UserBubble(text: String, images: List<String> = emptyList()) {
+private fun UserBubble(
+    key: String,
+    text: String,
+    images: List<String> = emptyList(),
+    onOpenImage: (String) -> Unit = {}
+) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
         Surface(
             color = MaterialTheme.colorScheme.primaryContainer,
@@ -1120,7 +1237,7 @@ private fun UserBubble(text: String, images: List<String> = emptyList()) {
             modifier = Modifier.widthIn(max = 280.dp)
         ) {
             Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)) {
-                images.forEach { PiImageThumb(it) }
+                images.forEach { PiImageThumb(it, onOpenImage) }
                 if (images.isNotEmpty() && text.isNotEmpty()) Spacer(Modifier.height(6.dp))
                 if (text.isNotEmpty()) {
                     MarkdownText(
@@ -1130,13 +1247,26 @@ private fun UserBubble(text: String, images: List<String> = emptyList()) {
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                 }
+                if (text.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        CopyButton(text, key)
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun AssistantBubble(text: String, images: List<String> = emptyList()) {
+private fun AssistantBubble(
+    key: String,
+    text: String,
+    images: List<String> = emptyList(),
+    onOpenImage: (String) -> Unit = {}
+) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
         Surface(
             color = MaterialTheme.colorScheme.surfaceVariant,
@@ -1144,7 +1274,7 @@ private fun AssistantBubble(text: String, images: List<String> = emptyList()) {
             modifier = Modifier.widthIn(max = 300.dp)
         ) {
             Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)) {
-                images.forEach { PiImageThumb(it) }
+                images.forEach { PiImageThumb(it, onOpenImage) }
                 if (images.isNotEmpty() && text.isNotEmpty()) Spacer(Modifier.height(6.dp))
                 if (text.isNotEmpty()) {
                     MarkdownText(
@@ -1154,8 +1284,64 @@ private fun AssistantBubble(text: String, images: List<String> = emptyList()) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+                if (text.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        SpeakButton(key, text)
+                        CopyButton(text, key)
+                    }
+                }
             }
         }
+    }
+}
+
+/** Botaozinho de copiar (vira check por 1s). */
+@Composable
+private fun CopyButton(text: String, key: String) {
+    val clipboard = LocalClipboardManager.current
+    val scope = rememberCoroutineScope()
+    var copied by remember(key, text.length) { mutableStateOf(false) }
+    IconButton(
+        onClick = {
+            clipboard.setText(AnnotatedString(text))
+            copied = true
+            scope.launch {
+                kotlinx.coroutines.delay(1200)
+                copied = false
+            }
+        },
+        modifier = Modifier.size(28.dp)
+    ) {
+        Icon(
+            Icons.Default.ContentCopy,
+            contentDescription = if (copied) "Copiado" else "Copiar",
+            modifier = Modifier.size(14.dp),
+            tint = if (copied) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+        )
+    }
+}
+
+/** Alto-falante: fala a resposta (TTS), toque de novo para. */
+@Composable
+private fun SpeakButton(key: String, text: String) {
+    val context = LocalContext.current
+    val active = PiTts.isSpeaking && PiTts.speakingKey == key
+    IconButton(
+        onClick = { PiTts.speak(context, key, text) },
+        modifier = Modifier.size(28.dp)
+    ) {
+        Icon(
+            if (active) Icons.Default.Stop else Icons.Default.VolumeUp,
+            contentDescription = if (active) "Parar de falar" else "Ouvir resposta",
+            modifier = Modifier.size(14.dp),
+            tint = if (active) MaterialTheme.colorScheme.error
+            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+        )
     }
 }
 
@@ -1187,7 +1373,13 @@ private fun ThinkingBlock(index: Int, text: String) {
 }
 
 @Composable
-private fun ToolChip(name: String, running: Boolean, text: String = "", images: List<String> = emptyList()) {
+private fun ToolChip(
+    name: String,
+    running: Boolean,
+    text: String = "",
+    images: List<String> = emptyList(),
+    onOpenImage: (String) -> Unit = {}
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1201,20 +1393,14 @@ private fun ToolChip(name: String, running: Boolean, text: String = "", images: 
         )
         if (text.isNotBlank()) {
             Spacer(Modifier.height(2.dp))
-            Text(
-                text,
-                fontSize = 11.sp,
-                fontFamily = FontFamily.Monospace,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
-                maxLines = 8,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(start = 16.dp)
-            )
+            Box(modifier = Modifier.padding(start = 16.dp)) {
+                DiffAwareMonoText(text, collapsedLines = 8)
+            }
         }
         if (images.isNotEmpty()) {
             Spacer(Modifier.height(4.dp))
             Column(modifier = Modifier.padding(start = 16.dp)) {
-                images.forEach { PiImageThumb(it) }
+                images.forEach { PiImageThumb(it, onOpenImage) }
             }
         }
     }
@@ -1227,12 +1413,9 @@ private fun BashBlock(text: String) {
         shape = RoundedCornerShape(8.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Text(
-            text,
-            fontSize = 11.sp,
-            fontFamily = FontFamily.Monospace,
-            modifier = Modifier.padding(8.dp)
-        )
+        Box(modifier = Modifier.padding(8.dp)) {
+            DiffAwareMonoText(text, collapsedLines = 12)
+        }
     }
 }
 
@@ -1244,4 +1427,152 @@ private fun NoticeLine(text: String, error: Boolean) {
         color = if (error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
     )
+}
+
+// -------------------------------------------------------------- autocomplete / e @
+
+/** Sugestoes de slash command enquanto digita "/...". Toque executa. */
+@Composable
+private fun SlashSuggestions(input: String, onPick: (PiCommand) -> Unit) {
+    val q = input.trimStart()
+    if (!q.startsWith("/") || q.contains(" ") || q.contains("\n")) return
+    val matches = PiSession.commands
+        .filter { it.label.startsWith(q, ignoreCase = true) }
+        .take(6)
+    if (matches.isEmpty()) return
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = RoundedCornerShape(10.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 10.dp, vertical = 4.dp)
+            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+    ) {
+        Column(modifier = Modifier.heightIn(max = 220.dp)) {
+            matches.forEach { cmd ->
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onPick(cmd) }
+                        .padding(horizontal = 12.dp, vertical = 7.dp)
+                ) {
+                    Text(cmd.label, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
+                    if (cmd.description.isNotEmpty()) {
+                        Text(
+                            cmd.description,
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Acha "@busca" no fim do texto (o @ precisa vir apos espaco/inicio). */
+private fun extractMentionQuery(input: String): Pair<String, IntRange>? {
+    val at = input.lastIndexOf('@')
+    if (at < 0) return null
+    if (at > 0) {
+        val before = input[at - 1]
+        if (!before.isWhitespace() && before != '(' && before != '"' && before != '\'') return null
+    }
+    val query = input.substring(at + 1)
+    if (query.contains(' ') || query.contains('\n')) return null
+    if (query.contains('/')) {
+        // caminho parcial: so o nome do arquivo filtra
+        val name = query.substringAfterLast('/')
+        if (name.contains(' ')) return null
+    }
+    return query to (at..input.length)
+}
+
+/** Sugestoes de arquivo pro @ (Download + anexos). Toque insere o caminho. */
+@Composable
+private fun MentionSuggestions(input: String, onPick: (path: String, start: Int, end: Int) -> Unit) {
+    val mention = remember(input) { extractMentionQuery(input) } ?: return
+    val (query, range) = mention
+    val filter = query.substringAfterLast('/').trim()
+    val files = remember(query) { PiAttach.listMentionFiles(filter) }
+    if (files.isEmpty()) return
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = RoundedCornerShape(10.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 10.dp, vertical = 4.dp)
+            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+    ) {
+        Column(modifier = Modifier.heightIn(max = 220.dp)) {
+            files.forEach { f ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onPick(f.absolutePath, range.first, range.last) }
+                        .padding(horizontal = 12.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.Description,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(f.name, fontSize = 13.sp, maxLines = 1, modifier = Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+// -------------------------------------------------------------- imagem em tela cheia
+
+/** Dialog fullscreen com pinch-to-zoom pra ver a imagem direito. */
+@Composable
+private fun ImageViewerDialog(base64: String, onClose: () -> Unit) {
+    val bitmap = remember(base64) { decodeImage(base64) }
+    Dialog(
+        onDismissRequest = onClose,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.95f))
+                .clickable { onClose() }
+        ) {
+            if (bitmap != null) {
+                var scale by remember { mutableStateOf(1f) }
+                var offset by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
+                val state = rememberTransformableState { zoomChange, panChange, _ ->
+                    scale = (scale * zoomChange).coerceIn(1f, 5f)
+                    offset = androidx.compose.ui.geometry.Offset(
+                        (offset.x + panChange.x).coerceIn(-800f, 800f),
+                        (offset.y + panChange.y).coerceIn(-800f, 800f)
+                    )
+                }
+                Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = "imagem ampliada",
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .transformable(state)
+                        .graphicsLayer(
+                            scaleX = scale,
+                            scaleY = scale,
+                            translationX = offset.x,
+                            translationY = offset.y
+                        )
+                )
+            }
+            IconButton(
+                onClick = onClose,
+                modifier = Modifier.align(Alignment.TopEnd).padding(8.dp)
+            ) {
+                Icon(Icons.Default.Close, contentDescription = "Fechar", tint = Color.White)
+            }
+        }
+    }
 }

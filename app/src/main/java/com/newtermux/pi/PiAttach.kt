@@ -89,6 +89,32 @@ object PiAttach {
         }
     }
 
+    /**
+     * Arquivos para a mencao @ no input: procura no Download e na pasta de
+     * anexos, filtra pelo nome. Sem recursao (rapido o bastante pra UI thread).
+     */
+    fun listMentionFiles(query: String, limit: Int = 8): List<File> {
+        return try {
+            val downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            val dirs = listOf(File(downloads, "nebula-pi-attach"), downloads)
+            val q = query.trim().lowercase()
+            val out = mutableListOf<File>()
+            for (dir in dirs) {
+                val files = dir.listFiles() ?: continue
+                for (f in files) {
+                    if (!f.isFile || !f.canRead()) continue
+                    if (q.isEmpty() || f.name.lowercase().contains(q)) out.add(f)
+                    if (out.size >= limit * 2) break
+                }
+                if (out.size >= limit * 2) break
+            }
+            out.sortedBy { it.name.lowercase() }.take(limit)
+        } catch (e: Exception) {
+            Log.w(TAG, "nao consegui listar arquivos pra mencao @", e)
+            emptyList()
+        }
+    }
+
     private fun sanitize(name: String): String {
         val clean = name.replace(Regex("[^A-Za-z0-9._-]"), "_")
         return if (clean.isBlank()) "arquivo" else clean.take(120)
