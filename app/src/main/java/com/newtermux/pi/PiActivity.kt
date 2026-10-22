@@ -1123,8 +1123,8 @@ private fun UserBubble(text: String, images: List<String> = emptyList()) {
                 images.forEach { PiImageThumb(it) }
                 if (images.isNotEmpty() && text.isNotEmpty()) Spacer(Modifier.height(6.dp))
                 if (text.isNotEmpty()) {
-                    Text(
-                        text,
+                    MarkdownText(
+                        text = text,
                         modifier = Modifier.padding(horizontal = 4.dp),
                         fontSize = 14.sp,
                         color = MaterialTheme.colorScheme.onPrimaryContainer
@@ -1147,8 +1147,8 @@ private fun AssistantBubble(text: String, images: List<String> = emptyList()) {
                 images.forEach { PiImageThumb(it) }
                 if (images.isNotEmpty() && text.isNotEmpty()) Spacer(Modifier.height(6.dp))
                 if (text.isNotEmpty()) {
-                    Text(
-                        text,
+                    MarkdownText(
+                        text = text,
                         modifier = Modifier.padding(horizontal = 4.dp),
                         fontSize = 14.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
