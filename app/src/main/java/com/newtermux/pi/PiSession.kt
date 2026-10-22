@@ -696,8 +696,13 @@ object PiSession {
     fun availableThinkingLevels(): List<String> = thinkingLevels.toList()
 
     fun openCommandPalette() {
-        client.request("get_commands")
+        refreshCommands()
         picker = PiPicker.Commands
+    }
+
+    /** Recarrega a lista de comandos (palette e autocomplete usam a mesma). */
+    fun refreshCommands() {
+        client.request("get_commands")
     }
 
     // ------------------------------------------------------------ sessoes

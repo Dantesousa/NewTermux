@@ -1434,8 +1434,31 @@ private fun NoticeLine(text: String, error: Boolean) {
 /** Sugestoes de slash command enquanto digita "/...". Toque executa. */
 @Composable
 private fun SlashSuggestions(input: String, onPick: (PiCommand) -> Unit) {
-    val q = input.trimStart()
+    // trim nas duas pontas: espaco apos a "/" (que o teclado mete sozinho)
+    // nao pode esconder a caixa; so esconde quando ja tem argumento de verdade.
+    val q = input.trim()
     if (!q.startsWith("/") || q.contains(" ") || q.contains("\n")) return
+    if (PiSession.commands.isEmpty()) {
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            shape = RoundedCornerShape(10.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 4.dp)
+                .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+        ) {
+            Text(
+                "Carregando comandos... toque pra recarregar",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { PiSession.refreshCommands() }
+                    .padding(horizontal = 12.dp, vertical = 10.dp)
+            )
+        }
+        return
+    }
     val matches = PiSession.commands
         .filter { it.label.startsWith(q, ignoreCase = true) }
         .take(6)
