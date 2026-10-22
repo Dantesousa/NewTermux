@@ -47,6 +47,13 @@ const SESSION_DIR = process.env.NEBULA_PI_SESSION_DIR || path.join(HOME, '.pi', 
 const WANT_PORT = Number(process.env.NEBULA_PI_PORT || 37877);
 const AUTORESTART = process.env.NEBULA_PI_AUTORESTART !== '0';
 const TERMUX_PREFIX = process.env.TERMUX_PREFIX || '/data/data/com.termux/files/usr';
+// Mesmo motivo do start script: sem o preload do Termux os filhos nao
+// conseguem executar shebangs (/usr/bin/env, /bin/sh) e o pi morre com
+// exit 126 em loop. Garante aqui tambem caso o daemon tenha sido herdado
+// sem env (o start script ja exporta, isto e segunda barreira).
+const TERMUX_PRELOAD = path.join(TERMUX_PREFIX, 'lib', 'libtermux-exec-ld-preload.so');
+const CHILD_LD_PRELOAD = process.env.LD_PRELOAD
+  || (fs.existsSync(TERMUX_PRELOAD) ? TERMUX_PRELOAD : undefined);
 
 fs.mkdirSync(RUNTIME_DIR, { recursive: true });
 
@@ -61,6 +68,7 @@ function log(...args) {
 const CHILD_ENV = {
   ...process.env,
   HOME,
+  ...(CHILD_LD_PRELOAD ? { LD_PRELOAD: CHILD_LD_PRELOAD } : {}),
   TERM: 'xterm-256color',
   COLORTERM: 'truecolor',
   LANG: process.env.LANG || 'en_US.UTF-8',

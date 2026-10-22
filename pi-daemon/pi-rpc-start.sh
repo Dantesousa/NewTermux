@@ -21,6 +21,16 @@ termux-wake-lock 2>/dev/null || true
 # execve falha com ENOENT e o sh segue para o proximo PATH. O que funciona de
 # verdade e o nodejs do pkg (Termux). Por isso testamos a execucao de verdade.
 PREFIX_DIR="${PREFIX:-/data/data/com.termux/files/usr}"
+
+# Sem LD_PRELOAD os shebangs com /usr/bin/env e /bin/sh nao resolvem no
+# Android (o .so reescreve esses caminhos para $PREFIX). Acontece quando o
+# daemon e disparado sem env do Termux (boot, adb, outro UID): o sintoma e
+# o loop `pi saiu code=126` / `node_modules/.bin/pi: not found` e o app fica
+# em "subindo daemon sozinho". Reexporta aqui para o daemon e os filhos.
+if [ -z "${LD_PRELOAD:-}" ] && [ -f "$PREFIX_DIR/lib/libtermux-exec-ld-preload.so" ]; then
+  export LD_PRELOAD="$PREFIX_DIR/lib/libtermux-exec-ld-preload.so"
+fi
+
 find_node() {
   for candidate in \
     "$PREFIX_DIR/bin/node" \
