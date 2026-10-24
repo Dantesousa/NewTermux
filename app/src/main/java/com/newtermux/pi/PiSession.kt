@@ -145,6 +145,15 @@ object PiSession {
 
     /** File of the active session (to highlight it in the list). */
     var currentSessionFile by mutableStateOf("")
+
+    /** Session whose saved model must be re-applied once get_state reports its file. */
+    private var restoreModelFor: String? = null
+    /** Set while a brand new session must fall back to the configured default model. */
+    private var restoreDefaultPending = false
+    /** Model picked while the session still had no file on disk. */
+    private var pendingModelChoice: PiSessionModels.Choice? = null
+    /** Model from Pi's settings.json, used to reset new sessions. */
+    private var defaultModelChoice: PiSessionModels.Choice? = null
         private set
 
     /** Dialogo pedindo texto. */
@@ -221,6 +230,7 @@ object PiSession {
             status = "connected"
             client.request("get_commands")
             client.request("get_state")
+            client.request("nebula_default_model")
             client.request("get_available_models")
             client.request("get_available_thinking_levels")
             client.request("nebula_engines")
@@ -428,6 +438,14 @@ object PiSession {
                 status = "connected"
                 val file = data?.optString("sessionFile").orEmpty()
                 if (file.isNotEmpty()) currentSessionFile = file
+                afterStateResolved()
+            }
+            "nebula_default_model" -> {
+                val provider = data?.optString("provider").orEmpty()
+                val modelId = data?.optString("modelId").orEmpty()
+                if (provider.isNotEmpty() && modelId.isNotEmpty()) {
+                    defaultModelChoice = PiSessionModels.Choice(provider, modelId)
+                }
             }
             "nebula_sessions" -> {
                 val list = mutableListOf<PiSessionInfo>()
@@ -462,9 +480,11 @@ object PiSession {
             "switch_session" -> {
                 val cancelled = data?.optBoolean("cancelled") ?: false
                 if (cancelled) {
+                    restoreModelFor = null
                     items.add(PiItem.Notice("Session switch cancelled", error = true))
                 } else {
                     client.request("get_messages")
+                    client.request("get_state")
                 }
             }
             "get_messages" -> reloadMessages(data)
@@ -745,6 +765,55 @@ object PiSession {
             "set_model",
             JSONObject().put("provider", choice.provider).put("modelId", choice.id)
         )
+        // Remember the choice for this session: Pi would go back to the default model otherwise.
+        val ctx = appContext
+        val file = currentSessionFile
+        if (ctx != null && file.isNotEmpty()) {
+            PiSessionModels.put(ctx, file, choice.provider, choice.id)
+            pendingModelChoice = null
+        } else {
+            pendingModelChoice = PiSessionModels.Choice(choice.provider, choice.id)
+        }
+    }
+
+    /**
+     * Runs after every get_state: records a model chosen before the session file existed, and
+     * re-applies per-session models. A brand new session falls back to the default model.
+     */
+    private fun afterStateResolved() {
+        val ctx = appContext
+        val file = currentSessionFile
+
+        pendingModelChoice?.let { choice ->
+            if (ctx != null && file.isNotEmpty()) {
+                PiSessionModels.put(ctx, file, choice.provider, choice.modelId)
+                pendingModelChoice = null
+            }
+        }
+
+        val pending = restoreModelFor
+        if (pending != null && pending == file) {
+            restoreModelFor = null
+            val saved = ctx?.let { PiSessionModels.get(it, pending) }
+            if (saved != null && saved.modelId != model) {
+                client.request(
+                    "set_model",
+                    JSONObject().put("provider", saved.provider).put("modelId", saved.modelId)
+                )
+                return
+            }
+        }
+
+        if (restoreDefaultPending) {
+            restoreDefaultPending = false
+            val fallback = defaultModelChoice
+            if (fallback != null && fallback.modelId != model) {
+                client.request(
+                    "set_model",
+                    JSONObject().put("provider", fallback.provider).put("modelId", fallback.modelId)
+                )
+            }
+        }
     }
 
     fun chooseThinking(level: String) {
@@ -880,16 +949,25 @@ object PiSession {
     /** Starts a new session (Pi creates the file once there is activity). */
     fun newSession() {
         picker = null
+        restoreModelFor = null
+        pendingModelChoice = null
+        // A fresh session must come back on the default model, whatever the last one used.
+        restoreDefaultPending = true
         client.request("new_session")
     }
 
     fun switchSession(info: PiSessionInfo) {
         picker = null
         items.clear()
+        // Model chosen for this session is re-applied when get_state reports the session file.
+        restoreModelFor = info.file
+        restoreDefaultPending = false
+        pendingModelChoice = null
         client.request("switch_session", JSONObject().put("sessionPath", info.file))
     }
 
     fun deleteSession(info: PiSessionInfo) {
+        appContext?.let { PiSessionModels.remove(it, info.file) }
         client.request("nebula_delete_session", JSONObject().put("path", info.file))
     }
 

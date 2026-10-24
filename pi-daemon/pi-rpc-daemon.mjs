@@ -256,6 +256,9 @@ function handleNebulaCommand(socket, line) {
         respond(true, { deleted: ok });
         return true;
       }
+      case 'nebula_default_model':
+        respond(true, defaultModel());
+        return true;
       default:
         respond(false, null, 'comando desconhecido: ' + type);
         return true;
@@ -528,6 +531,24 @@ function saveMemory(text, file) {
 // Catalog mirrored from Pi 1.3.0 (pi-ai/dist/env-api-keys.js + providers/).
 // featured=true goes to the top in the app (OpenCode highlighted, requested by Dante).
 const AUTH_FILE = path.join(HOME, '.pi', 'agent', 'auth.json');
+const SETTINGS_FILE = path.join(HOME, '.pi', 'agent', 'settings.json');
+
+/**
+ * The model Pi starts with, before any per-session switch: the app uses it to send a new
+ * session back to the default model after a session that used another one.
+ */
+function defaultModel() {
+  try {
+    const settings = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
+    return {
+      provider: settings.defaultProvider || '',
+      modelId: settings.defaultModel || '',
+    };
+  } catch (e) {
+    log('could not read settings.json:', e.message);
+    return { provider: '', modelId: '' };
+  }
+}
 const PROVIDERS = [
   { id: 'opencode-go', name: 'OpenCode Go', env: 'OPENCODE_API_KEY', featured: true },
   { id: 'opencode', name: 'OpenCode Zen', env: 'OPENCODE_API_KEY', featured: true },
