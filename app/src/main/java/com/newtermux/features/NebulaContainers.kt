@@ -259,8 +259,8 @@ object NebulaContainers {
 
     suspend fun clearCache(context: Context) = exec(context, "clear-cache", timeoutSeconds = 120)
 
-    suspend fun setupDesktop(context: Context, name: String) =
-        exec(context, "gui", "setup", name, timeoutSeconds = 900)
+    suspend fun setupDesktop(context: Context, name: String, profile: String = "xfce") =
+        exec(context, "gui", "setup", name, "--profile", profile, timeoutSeconds = 1800)
 
     /** True when the graphical stack (window manager + terminal) is already installed. */
     suspend fun desktopReady(context: Context, name: String): Boolean {

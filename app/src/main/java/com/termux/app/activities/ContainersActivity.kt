@@ -153,6 +153,19 @@ private fun ContainersScreen(
         }
     }
 
+    fun installDesktop(container: NebulaContainers.Container, profile: String) {
+        runBusy(
+            "Installing the $profile desktop in ${container.name}… (this can take a few minutes)",
+            { NebulaContainers.setupDesktop(context, container.name, profile) }
+        ) { result ->
+            scope.launch {
+                snackbar.showSnackbar(
+                    if (result.ok) "Desktop ready — tap Desktop to start it" else result.message
+                )
+            }
+        }
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
@@ -379,25 +392,19 @@ private fun ContainersScreen(
             onDismissRequest = { desktopOffer = null },
             title = { Text("Desktop not installed") },
             text = {
-                Text(
-                    "${container.name} has no window manager yet. Install a lightweight desktop " +
-                        "(Openbox + xterm, a couple hundred MB) now?"
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    desktopOffer = null
-                    runBusy("Installing the desktop in ${container.name}…", {
-                        NebulaContainers.setupDesktop(context, container.name)
-                    }) { result ->
-                        scope.launch {
-                            snackbar.showSnackbar(
-                                if (result.ok) "Desktop ready — tap Desktop to start it" else result.message
-                            )
-                        }
+                Column {
+                    Text("Pick what to install in ${container.name}:")
+                    DesktopOption("XFCE — panel, app menu and file manager (~350 MB)") {
+                        desktopOffer = null
+                        installDesktop(container, "xfce")
                     }
-                }) { Text("Install") }
+                    DesktopOption("Minimal — Openbox with a fullscreen terminal (~60 MB)") {
+                        desktopOffer = null
+                        installDesktop(container, "minimal")
+                    }
+                }
             },
+            confirmButton = {},
             dismissButton = { TextButton(onClick = { desktopOffer = null }) { Text("Cancel") } },
         )
     }
@@ -558,7 +565,7 @@ private fun DesktopToggleRow(checked: Boolean, onCheckedChange: (Boolean) -> Uni
         Column(modifier = Modifier.weight(1f)) {
             Text("Install a desktop with the image", style = MaterialTheme.typography.bodyLarge)
             Text(
-                "Adds Openbox and a terminal after the image is unpacked",
+                "Adds XFCE (panel, app menu, file manager) after the image is unpacked",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
