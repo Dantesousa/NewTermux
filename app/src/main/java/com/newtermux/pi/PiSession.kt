@@ -42,7 +42,7 @@ data class PiCommand(
 )
 
 /** Qual seletor esta aberto na UI. */
-enum class PiPicker { Commands, Models, Thinking, Sessions, Theme, Memory }
+enum class PiPicker { Commands, Models, Thinking, Sessions, Theme, Memory, Engines, Providers }
 
 /** Uma memoria do Hermes (lista de memories). */
 data class PiMemory(
@@ -118,6 +118,16 @@ object PiSession {
     var memories by mutableStateOf<List<PiMemory>>(emptyList())
         private set
 
+    /** Engines disponiveis (Pi Node x Pi-Bolt nativo). */
+    var engines by mutableStateOf<List<PiEngine>>(emptyList())
+        private set
+    var currentEngine by mutableStateOf("")
+        private set
+
+    /** Provedores do Pi (auth). */
+    var providers by mutableStateOf<List<PiProvider>>(emptyList())
+        private set
+
     /** Filtro de busca das memorias. */
     var memoryQuery by mutableStateOf("")
 
@@ -179,6 +189,10 @@ object PiSession {
 
     data class PiModelChoice(val id: String, val name: String, val provider: String)
 
+    data class PiEngine(val id: String, val name: String, val bin: String, val available: Boolean)
+
+    data class PiProvider(val id: String, val name: String, val env: String, val featured: Boolean, val configured: Boolean, val viaEnv: Boolean)
+
     /** Comandos que o app sabe executar via RPC (equivalentes aos do TUI). */
     private val builtinCommands = listOf(
         PiCommand("model", "/model", "Trocar de modelo", "builtin"),
@@ -201,6 +215,11 @@ object PiSession {
             connected = true
             status = "conectado"
             client.request("get_commands")
+            client.request("get_state")
+            client.request("get_available_models")
+            client.request("get_available_thinking_levels")
+            client.request("nebula_engines")
+            client.request("nebula_providers")
             pendingPrompt?.let { (text, pendingImages) ->
                 pendingPrompt = null
                 Log.i(TAG, "reenviando prompt pendente")
@@ -487,10 +506,13 @@ object PiSession {
                 val id = data?.optString("id")
                 if (!id.isNullOrEmpty()) model = id
                 status = model
-            }
+                // Mantem a lista de opcoes fresca apos a troca.
+                client.request("get_available_models")
+                client.request("get_available_thinking_levels")
             "set_thinking_level" -> {
                 val level = data?.optString("level").orEmpty()
                 status = if (level.isNotEmpty()) "$model ($level)" else model
+                client.request("get_state")
             }
             "get_session_stats" -> items.add(PiItem.Notice(formatStats(data), error = false))
             "new_session" -> {
@@ -538,6 +560,45 @@ object PiSession {
                     )
                 )
                 if (saved) client.request("nebula_memory")
+            }
+            "nebula_engines" -> {
+                val list = mutableListOf<PiEngine>()
+                val arr = data?.optJSONArray("engines")
+                for (i in 0 until (arr?.length() ?: 0)) {
+                    val e = arr!!.optJSONObject(i) ?: continue
+                    list.add(PiEngine(e.optString("id"), e.optString("name").ifEmpty { e.optString("id") }, e.optString("bin"), e.optBoolean("available", true)))
+                }
+                engines = list
+                val cur = data?.optString("current").orEmpty()
+                if (cur.isNotEmpty()) currentEngine = cur
+            }
+            "nebula_set_engine" -> {
+                val id = data?.optString("engine").orEmpty()
+                if (id.isNotEmpty()) currentEngine = id
+                items.add(PiItem.Notice("Engine trocada para $id — sessao reiniciada (anterior salva em sessoes)", error = false))
+                clear()
+                client.request("nebula_engines")
+                client.request("get_state")
+                client.request("nebula_sessions")
+            }
+            "nebula_providers" -> {
+                val list = mutableListOf<PiProvider>()
+                val arr = data?.optJSONArray("providers")
+                for (i in 0 until (arr?.length() ?: 0)) {
+                    val p = arr!!.optJSONObject(i) ?: continue
+                    list.add(PiProvider(p.optString("id"), p.optString("name").ifEmpty { p.optString("id") }, p.optString("env"), p.optBoolean("featured"), p.optBoolean("configured"), p.optBoolean("viaEnv")))
+                }
+                providers = list
+            }
+            "nebula_provider_save" -> {
+                items.add(PiItem.Notice("Provedor configurado — modelos liberados em /model", error = false))
+                client.request("nebula_providers")
+                client.request("get_available_models")
+            }
+            "nebula_provider_delete" -> {
+                val ok = data?.optBoolean("deleted") ?: false
+                items.add(PiItem.Notice(if (ok) "Provedor removido" else "Nada para remover (pode ser via env)", error = !ok))
+                client.request("nebula_providers")
             }
         }
     }
@@ -758,6 +819,36 @@ object PiSession {
     /** Abre o seletor de cor de destaque. */
     fun openTheme() {
         picker = PiPicker.Theme
+    }
+
+    fun openEngines() {
+        client.request("nebula_engines")
+        picker = PiPicker.Engines
+    }
+
+    fun chooseEngine(id: String) {
+        picker = null
+        items.add(PiItem.Notice("Trocando engine para $id...", error = false))
+        client.request("nebula_set_engine", JSONObject().put("engine", id))
+    }
+
+    fun availableEngines(): List<PiEngine> = engines
+
+    fun openProviders() {
+        client.request("nebula_providers")
+        picker = PiPicker.Providers
+    }
+
+    fun availableProviders(): List<PiProvider> = providers
+
+    fun askProviderKey(provider: PiProvider) {
+        textDialog = PiTextDialog("Chave: " + provider.name, provider.env) {
+            client.request("nebula_provider_save", JSONObject().put("provider", provider.id).put("key", it))
+        }
+    }
+
+    fun removeProvider(provider: PiProvider) {
+        client.request("nebula_provider_delete", JSONObject().put("provider", provider.id))
     }
 
     /** Troca o acento do app inteiro (o Termux tambem usa esse acento). */

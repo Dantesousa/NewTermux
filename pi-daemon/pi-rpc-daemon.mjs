@@ -14,7 +14,9 @@
  * Termux de verdade: mesmo bash, mesmas ferramentas, mesmos arquivos.
  *
  * Env:
- *   NEBULA_PI_BIN      caminho do executavel do Pi (default ~/.pi/agent/bin/pi)
+ *   NEBULA_PI_BIN      caminho do executavel do Pi (override absoluto;
+ *                        default ~/.pi/agent/bin/pi)
+ *   NEBULA_PI_ENGINE   "pi" ou "pi-bolt" (vale se NEBULA_PI_BIN nao setado)
  *   NEBULA_PI_CWD      working directory do Pi (default $HOME)
  *   NEBULA_PI_ARGS     argumentos extras (default: --mode rpc)
  *   NEBULA_PI_PORT     porta fixa (default: 37877)
@@ -39,14 +41,55 @@ const PORT_FILE = path.join(RUNTIME_DIR, 'port');
 const PID_FILE = path.join(RUNTIME_DIR, 'daemon.pid');
 const LOG_FILE = path.join(RUNTIME_DIR, 'daemon.log');
 const HOST = '127.0.0.1';
+const TERMUX_PREFIX = process.env.TERMUX_PREFIX || '/data/data/com.termux/files/usr';
 
-const PI_BIN = process.env.NEBULA_PI_BIN || path.join(HOME, '.pi', 'agent', 'bin', 'pi');
 const PI_CWD = process.env.NEBULA_PI_CWD || HOME;
+
+// ---- engine: Pi (Node) ou Pi-Bolt (nativo) ----
+//
+// Ordem de resolucao (boot): NEBULA_PI_BIN absoluto > NEBULA_PI_ENGINE
+// ("pi"|"pi-bolt") > arquivo runtime/engine > padrao (pi).
+// O arquivo runtime/engine e escrito pelo comando nebula_set_engine, entao a
+// escolha sobrevive a reinicios do daemon. NEBULA_PI_BIN continua valendo
+// como override absoluto (compatibilidade com o comportamento anterior).
+//
+// As duas engines leem e escrevem o MESMO ~/.pi/agent (config, auth,
+// sessoes, memorias): trocar de engine nunca apaga dado, so comeca uma
+// sessao nova no processo novo. A sessao anterior continua listada em
+// nebula_sessions e pode ser reaberta em qualquer engine.
+const ENGINE_FILE = path.join(RUNTIME_DIR, 'engine');
+const ENGINES = {
+  pi: {
+    id: 'pi',
+    name: 'Pi (Node)',
+    bin: path.join(HOME, '.pi', 'agent', 'bin', 'pi'),
+  },
+  'pi-bolt': {
+    id: 'pi-bolt',
+    name: 'Pi-Bolt (nativo)',
+    bin: path.join(TERMUX_PREFIX, 'bin', 'pi-bolt'),
+  },
+};
+
+function resolveEngineId() {
+  const fromEnv = String(process.env.NEBULA_PI_ENGINE || '').trim();
+  if (fromEnv === 'pi' || fromEnv === 'pi-bolt') return fromEnv;
+  try {
+    const saved = fs.readFileSync(ENGINE_FILE, 'utf8').trim();
+    if (saved === 'pi' || saved === 'pi-bolt') return saved;
+  } catch {}
+  return 'pi';
+}
+
+let engineId = resolveEngineId();
+let PI_BIN = ENGINES[engineId].bin;
+// Override absoluto (comportamento anterior): usa o binario indicado.
+// A troca em runtime (nebula_set_engine) limpa esse override no processo.
+if (process.env.NEBULA_PI_BIN) PI_BIN = process.env.NEBULA_PI_BIN;
 const PI_ARGS = (process.env.NEBULA_PI_ARGS || '--mode rpc').split(/\s+/).filter(Boolean);
 const SESSION_DIR = process.env.NEBULA_PI_SESSION_DIR || path.join(HOME, '.pi', 'agent', 'sessions');
 const WANT_PORT = Number(process.env.NEBULA_PI_PORT || 37877);
 const AUTORESTART = process.env.NEBULA_PI_AUTORESTART !== '0';
-const TERMUX_PREFIX = process.env.TERMUX_PREFIX || '/data/data/com.termux/files/usr';
 // Mesmo motivo do start script: sem o preload do Termux os filhos nao
 // conseguem executar shebangs (/usr/bin/env, /bin/sh) e o pi morre com
 // exit 126 em loop. Garante aqui tambem caso o daemon tenha sido herdado
@@ -87,12 +130,13 @@ const CHILD_ENV = {
 /** @type {import('node:child_process').ChildProcessWithoutNullStreams | null} */
 let pi = null;
 let restarting = false;
+let switchingEngine = false;
 const clients = new Set();
 
 // ---------------------------------------------------------------- pi process
 
 function startPi() {
-  log('iniciando pi:', PI_BIN, PI_ARGS.join(' '), 'cwd=' + PI_CWD);
+  log('iniciando pi [' + engineId + ']:', PI_BIN, PI_ARGS.join(' '), 'cwd=' + PI_CWD);
   pi = spawn(PI_BIN, PI_ARGS, {
     cwd: PI_CWD,
     env: CHILD_ENV,
@@ -118,6 +162,14 @@ function startPi() {
     log('pi saiu code=' + code + ' signal=' + signal);
     pi = null;
     if (restarting) return;
+    // Troca de engine: o pi atual foi morto de proposito, sobe o novo
+    // com o binario novo (o socket TCP com o app continua de pe).
+    if (switchingEngine) {
+      switchingEngine = false;
+      log('reiniciando pi com a nova engine [' + engineId + ']...');
+      startPi();
+      return;
+    }
     if (!AUTORESTART) {
       shutdown(0);
       return;
@@ -181,6 +233,29 @@ function handleNebulaCommand(socket, line) {
         respond(true, { saved });
         return true;
       }
+      case 'nebula_engines':
+        respond(true, { engines: engineStatus(), current: currentEngine() });
+        return true;
+      case 'nebula_set_engine': {
+        const r = setEngine(rec.engine);
+        if (r.ok) respond(true, { engine: r.engine });
+        else respond(false, null, r.error);
+        return true;
+      }
+      case 'nebula_providers':
+        respond(true, { providers: providerStatus() });
+        return true;
+      case 'nebula_provider_save': {
+        const r = saveProviderKey(rec.provider, rec.key);
+        if (r.ok) respond(true, { saved: true });
+        else respond(false, null, r.error);
+        return true;
+      }
+      case 'nebula_provider_delete': {
+        const ok = deleteProvider(rec.provider);
+        respond(true, { deleted: ok });
+        return true;
+      }
       default:
         respond(false, null, 'comando desconhecido: ' + type);
         return true;
@@ -190,6 +265,68 @@ function handleNebulaCommand(socket, line) {
     respond(false, null, e.message);
     return true;
   }
+}
+
+// ------------------------------------------------- engine (pi x pi-bolt)
+
+/** Engine efetiva: 'custom' quando NEBULA_PI_BIN aponta pra fora da lista. */
+function currentEngine() {
+  if (process.env.NEBULA_PI_BIN && process.env.NEBULA_PI_BIN !== ENGINES[engineId].bin) {
+    return 'custom';
+  }
+  return engineId;
+}
+
+function engineStatus() {
+  return Object.values(ENGINES).map((e) => {
+    let available = false;
+    try {
+      fs.accessSync(e.bin, fs.constants.X_OK);
+      available = true;
+    } catch {}
+    return { id: e.id, name: e.name, bin: e.bin, available };
+  });
+}
+
+/**
+ * Troca a engine em runtime: persiste a escolha, mata o pi atual e o
+ * exit handler sobe o novo com o binario novo. O socket TCP continua de
+ * pe, entao o app nao precisa reconectar — mas a sessao ativa zera
+ * (o processo novo comeca vazio; o arquivo da sessao anterior continua
+ * no disco e pode ser reaberto via switch_session).
+ */
+function setEngine(id) {
+  if (id !== 'pi' && id !== 'pi-bolt') {
+    return { ok: false, error: 'engine desconhecida: ' + id };
+  }
+  const bin = ENGINES[id].bin;
+  try {
+    fs.accessSync(bin, fs.constants.X_OK);
+  } catch {
+    return { ok: false, error: 'binario nao encontrado ou nao executavel: ' + bin };
+  }
+  engineId = id;
+  PI_BIN = bin;
+  delete process.env.NEBULA_PI_BIN;
+  try {
+    fs.writeFileSync(ENGINE_FILE, id + '\n');
+  } catch (e) {
+    log('nao consegui persistir engine:', e.message);
+  }
+  if (pi && !pi.killed) {
+    switchingEngine = true;
+    log('trocando engine para', id, '- matando pi atual');
+    try {
+      pi.kill('SIGTERM');
+    } catch (e) {
+      log('falha ao matar pi:', e.message);
+      switchingEngine = false;
+      startPi();
+    }
+  } else {
+    startPi();
+  }
+  return { ok: true, engine: id };
 }
 
 function listSessions() {
@@ -385,6 +522,91 @@ function saveMemory(text, file) {
     log('erro ao salvar memoria:', e.message);
     return false;
   }
+}
+
+// ------------------------------------------------- provedores (auth)
+// Catalogo espelhado do Pi 1.3.0 (pi-ai/dist/env-api-keys.js + providers/).
+// featured=true vai pro topo no app (OpenCode em destaque, pedido do Dante).
+const AUTH_FILE = path.join(HOME, '.pi', 'agent', 'auth.json');
+const PROVIDERS = [
+  { id: 'opencode-go', name: 'OpenCode Go', env: 'OPENCODE_API_KEY', featured: true },
+  { id: 'opencode', name: 'OpenCode Zen', env: 'OPENCODE_API_KEY', featured: true },
+  { id: 'anthropic', name: 'Anthropic', env: 'ANTHROPIC_API_KEY' },
+  { id: 'openai', name: 'OpenAI', env: 'OPENAI_API_KEY' },
+  { id: 'openai-codex', name: 'OpenAI Codex (OAuth)', env: 'OPENAI_API_KEY' },
+  { id: 'google', name: 'Google Gemini', env: 'GEMINI_API_KEY' },
+  { id: 'deepseek', name: 'DeepSeek', env: 'DEEPSEEK_API_KEY' },
+  { id: 'openrouter', name: 'OpenRouter', env: 'OPENROUTER_API_KEY' },
+  { id: 'xai', name: 'xAI (Grok)', env: 'XAI_API_KEY' },
+  { id: 'groq', name: 'Groq', env: 'GROQ_API_KEY' },
+  { id: 'cerebras', name: 'Cerebras', env: 'CEREBRAS_API_KEY' },
+  { id: 'mistral', name: 'Mistral', env: 'MISTRAL_API_KEY' },
+  { id: 'moonshotai', name: 'Moonshot AI', env: 'MOONSHOT_API_KEY' },
+  { id: 'moonshotai-cn', name: 'Moonshot AI (CN)', env: 'MOONSHOT_API_KEY' },
+  { id: 'kimi-coding', name: 'Kimi for Coding', env: 'KIMI_API_KEY' },
+  { id: 'qwen-token-plan', name: 'Qwen Token Plan', env: 'QWEN_TOKEN_PLAN_API_KEY' },
+  { id: 'qwen-token-plan-cn', name: 'Qwen (CN)', env: 'QWEN_TOKEN_PLAN_CN_API_KEY' },
+  { id: 'qwen-token-plan-individual', name: 'Qwen Individual', env: 'QWEN_TOKEN_PLAN_API_KEY' },
+  { id: 'xiaomi', name: 'Xiaomi MiMo', env: 'XIAOMI_API_KEY' },
+  { id: 'xiaomi-token-plan-cn', name: 'MiMo (CN)', env: 'XIAOMI_TOKEN_PLAN_CN_API_KEY' },
+  { id: 'xiaomi-token-plan-ams', name: 'MiMo (Amsterdam)', env: 'XIAOMI_TOKEN_PLAN_AMS_API_KEY' },
+  { id: 'xiaomi-token-plan-sgp', name: 'MiMo (Singapore)', env: 'XIAOMI_TOKEN_PLAN_SGP_API_KEY' },
+  { id: 'zai', name: 'ZAI Coding Plan', env: 'ZAI_API_KEY' },
+  { id: 'zai-coding-cn', name: 'ZAI (CN)', env: 'ZAI_CODING_CN_API_KEY' },
+  { id: 'ant-ling', name: 'Ant Ling', env: 'ANT_LING_API_KEY' },
+  { id: 'nvidia', name: 'NVIDIA NIM', env: 'NVIDIA_API_KEY' },
+  { id: 'vercel-ai-gateway', name: 'Vercel AI Gateway', env: 'AI_GATEWAY_API_KEY' },
+  { id: 'radius', name: 'Radius', env: 'RADIUS_API_KEY' },
+  { id: 'typesafe', name: 'TypeSafe', env: 'TYPESAFE_API_KEY' },
+  { id: 'huggingface', name: 'Hugging Face', env: 'HF_TOKEN' },
+  { id: 'fireworks', name: 'Fireworks', env: 'FIREWORKS_API_KEY' },
+  { id: 'together', name: 'Together AI', env: 'TOGETHER_API_KEY' },
+  { id: 'baseten', name: 'Baseten', env: 'BASETEN_API_KEY' },
+  { id: 'meta', name: 'Meta', env: 'META_API_KEY' },
+  { id: 'minimax', name: 'MiniMax', env: 'MINIMAX_API_KEY' },
+  { id: 'minimax-cn', name: 'MiniMax (CN)', env: 'MINIMAX_CN_API_KEY' },
+  { id: 'azure', name: 'Azure OpenAI', env: 'AZURE_OPENAI_API_KEY' },
+  { id: 'github-copilot', name: 'GitHub Copilot', env: 'COPILOT_GITHUB_TOKEN' },
+  { id: 'amazon-bedrock', name: 'Amazon Bedrock', env: 'AWS_BEARER_TOKEN_BEDROCK' },
+  { id: 'google-vertex', name: 'Google Vertex', env: 'GOOGLE_CLOUD_API_KEY' },
+  { id: 'cloudflare-workers-ai', name: 'Cloudflare Workers AI', env: 'CLOUDFLARE_API_KEY' },
+  { id: 'cloudflare-ai-gateway', name: 'Cloudflare Gateway', env: 'CLOUDFLARE_API_KEY' },
+];
+
+function readAuth() {
+  try { return JSON.parse(fs.readFileSync(AUTH_FILE, 'utf8')); }
+  catch { return {}; }
+}
+
+function providerStatus() {
+  const auth = readAuth();
+  return PROVIDERS.map((p) => {
+    const hasKey = !!(auth[p.id] && auth[p.id].key);
+    const envSet = !!process.env[p.env];
+    return { id: p.id, name: p.name, env: p.env, featured: !!p.featured, configured: hasKey || envSet, viaEnv: !hasKey && envSet };
+  });
+}
+
+function saveProviderKey(provider, key) {
+  if (!PROVIDERS.some((p) => p.id === provider)) return { ok: false, error: 'provedor desconhecido: ' + provider };
+  const k = String(key || '').trim();
+  if (k.length < 4) return { ok: false, error: 'chave muito curta' };
+  try {
+    const auth = readAuth();
+    auth[provider] = { type: 'api_key', key: k };
+    fs.mkdirSync(path.dirname(AUTH_FILE), { recursive: true });
+    fs.writeFileSync(AUTH_FILE, JSON.stringify(auth, null, 2) + '\n', { mode: 0o600 });
+    log('provedor configurado:', provider);
+    return { ok: true };
+  } catch (e) { return { ok: false, error: e.message }; }
+}
+
+function deleteProvider(provider) {
+  try {
+    const auth = readAuth();
+    if (auth[provider]) { delete auth[provider]; fs.writeFileSync(AUTH_FILE, JSON.stringify(auth, null, 2) + '\n', { mode: 0o600 }); log('provedor removido:', provider); return true; }
+    return false;
+  } catch (e) { log('erro ao remover provedor:', e.message); return false; }
 }
 
 // ------------------------------------------------------------------ servidor

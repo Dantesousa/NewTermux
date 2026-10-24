@@ -49,7 +49,9 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Psychology
@@ -389,6 +391,12 @@ fun PiScreen() {
                     }
                 },
                 actions = {
+                    IconButton(onClick = { PiSession.openEngines() }) {
+                        Icon(Icons.Default.Memory, contentDescription = "Engine", modifier = Modifier.size(20.dp))
+                    }
+                    IconButton(onClick = { PiSession.openProviders() }) {
+                        Icon(Icons.Default.Key, contentDescription = "Provedores", modifier = Modifier.size(20.dp))
+                    }
                     IconButton(onClick = { PiSession.openMemory() }) {
                         Icon(Icons.Default.Psychology, contentDescription = "Memoria", modifier = Modifier.size(20.dp))
                     }
@@ -566,6 +574,8 @@ fun PiScreen() {
         PiPicker.Sessions -> SessionsSheet()
         PiPicker.Theme -> ThemeSheet()
         PiPicker.Memory -> MemorySheet()
+        PiPicker.Engines -> EngineSheet()
+        PiPicker.Providers -> ProviderSheet()
         null -> Unit
     }
 
@@ -633,6 +643,78 @@ private fun CommandRow(cmd: PiCommand) {
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ProviderSheet() {
+    val all = PiSession.availableProviders()
+    val featured = all.filter { it.featured }
+    val rest = all.filter { !it.featured }
+    ModalBottomSheet(onDismissRequest = { PiSession.picker = null }) {
+        LazyColumn(modifier = Modifier.heightIn(max = 520.dp)) {
+            item {
+                Text("Provedores", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                Text("Toque para colar a chave (salva em auth.json). ● = configurado.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp))
+            }
+            if (all.isEmpty()) {
+                item { Text("Carregando...", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp)) }
+            }
+            if (featured.isNotEmpty()) {
+                item {
+                    Text("★ OpenCode (recomendado)", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
+                }
+            }
+            items(featured) { p -> ProviderRow(p, highlight = true) }
+            if (rest.isNotEmpty()) {
+                item {
+                    Text("Todos os provedores do Pi", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
+                }
+            }
+            items(rest) { p -> ProviderRow(p, highlight = false) }
+            item { Spacer(Modifier.height(24.dp)) }
+        }
+    }
+}
+
+@Composable
+private fun ProviderRow(p: com.newtermux.pi.PiSession.PiProvider, highlight: Boolean) {
+    Row(modifier = Modifier.fillMaxWidth().clickable { PiSession.askProviderKey(p) }.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text((if (p.configured) "● " else "○ ") + p.name, fontSize = 14.sp, fontWeight = if (highlight) FontWeight.SemiBold else FontWeight.Normal, color = if (p.configured) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(p.id + " · " + p.env + (if (p.viaEnv) " (via env)" else ""), fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (p.configured && !p.viaEnv) {
+            IconButton(onClick = { PiSession.removeProvider(p) }) {
+                Icon(Icons.Default.Delete, contentDescription = "Remover", modifier = Modifier.size(18.dp))
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun EngineSheet() {
+    val engines = PiSession.engines
+    val current = PiSession.currentEngine
+    ModalBottomSheet(onDismissRequest = { PiSession.picker = null }) {
+        LazyColumn(modifier = Modifier.heightIn(max = 400.dp)) {
+            item {
+                Text("Engine", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                Text("Pi (Node) ou Pi-Bolt (nativo). Troca sem reconectar — mesma pasta, mesmas sessoes.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp))
+            }
+            if (engines.isEmpty()) {
+                item { Text("Carregando...", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp)) }
+            }
+            items(engines) { e ->
+                Column(modifier = Modifier.fillMaxWidth().clickable(enabled = e.available) { PiSession.chooseEngine(e.id) }.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                    Text((if (e.id == current) "● " else "○ ") + e.name, fontSize = 14.sp, fontWeight = if (e.id == current) FontWeight.SemiBold else FontWeight.Normal, color = if (e.available) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(e.id + (if (e.available) "" else " (indisponivel)"), fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            item { Spacer(Modifier.height(24.dp)) }
         }
     }
 }
