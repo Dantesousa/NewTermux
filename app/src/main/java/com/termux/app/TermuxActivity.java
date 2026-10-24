@@ -202,6 +202,8 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
      * The {@link TermuxActivity} is in an invalid state and must not be run.
      */
     private boolean mIsInvalidState;
+    /** Guards the one-shot Linux desktop launch triggered by the container autostart setting. */
+    private boolean mContainerAutostartLaunched = false;
 
     private int mNavBarHeight;
 
@@ -446,6 +448,24 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
                 byte[] bytes = pendingCmd.getBytes();
                 session.write(bytes, 0, bytes.length);
             }
+        }
+
+        maybeLaunchAutostartContainer();
+    }
+
+    /**
+     * Starts the Linux desktop the user pinned in Settings → Linux Containers. Runs once per
+     * process so returning to the app does not spawn a second session.
+     */
+    private void maybeLaunchAutostartContainer() {
+        if (mContainerAutostartLaunched) return;
+        String container = com.newtermux.features.NewTermuxSettings.getAutostartContainer(this);
+        if (container == null) return;
+        mContainerAutostartLaunched = true;
+        try {
+            com.newtermux.features.NebulaContainers.INSTANCE.startDesktop(this, container, "desktop");
+        } catch (Exception e) {
+            Logger.logError(LOG_TAG, "Failed to start the container desktop: " + e);
         }
     }
 

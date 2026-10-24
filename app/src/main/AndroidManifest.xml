@@ -113,6 +113,13 @@
             android:theme="@style/Theme.NewTermux" />
 
         <activity
+            android:name=".app.activities.ContainersActivity"
+            android:exported="false"
+            android:label="Linux Containers"
+            android:parentActivityName=".app.activities.SettingsActivity"
+            android:theme="@style/Theme.NewTermux" />
+
+        <activity
             android:name=".app.activities.SshManagerActivity"
             android:exported="false"
             android:label="SSH Manager"

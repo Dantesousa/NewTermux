@@ -31,6 +31,8 @@ public class NewTermuxSettings {
     public static final String KEY_LAST_UPDATE_CHECK         = "last_update_check";
     // Internal one-time gate: set once we have shown the battery-optimization nudge.
     public static final String KEY_BATTERY_OPT_PROMPTED      = "battery_opt_prompted";
+    // Container whose desktop should come up with the app (empty/null = disabled).
+    public static final String KEY_CONTAINER_AUTOSTART       = "container_autostart";
 
     private static SharedPreferences prefs(Context ctx) {
         return ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
@@ -135,6 +137,19 @@ public class NewTermuxSettings {
     }
     public static void clearPendingCommand(Context ctx) {
         prefs(ctx).edit().remove("pending_command").apply();
+    }
+
+    // Linux container desktop that should start along with the app.
+    public static String getAutostartContainer(Context ctx) {
+        String value = prefs(ctx).getString(KEY_CONTAINER_AUTOSTART, null);
+        return (value == null || value.isEmpty()) ? null : value;
+    }
+    public static void setAutostartContainer(Context ctx, String containerName) {
+        if (containerName == null || containerName.isEmpty()) {
+            prefs(ctx).edit().remove(KEY_CONTAINER_AUTOSTART).apply();
+        } else {
+            prefs(ctx).edit().putString(KEY_CONTAINER_AUTOSTART, containerName).apply();
+        }
     }
 
     // Generic setter for all boolean keys (used by preference listener)
