@@ -509,6 +509,7 @@ object PiSession {
                 // Mantem a lista de opcoes fresca apos a troca.
                 client.request("get_available_models")
                 client.request("get_available_thinking_levels")
+            }
             "set_thinking_level" -> {
                 val level = data?.optString("level").orEmpty()
                 status = if (level.isNotEmpty()) "$model ($level)" else model
