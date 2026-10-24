@@ -217,7 +217,9 @@ object NebulaContainers {
     }
 
     suspend fun search(context: Context, query: String): List<Image> {
-        val result = exec(context, "search", query, "--json", timeoutSeconds = 120)
+        // --compatible drops images without a build for this device's architecture, so the list only
+        // offers installs that can actually work.
+        val result = exec(context, "search", query, "--json", "--compatible", timeoutSeconds = 180)
         if (!result.ok) {
             Log.w(TAG, "search failed: ${result.message}")
             return emptyList()

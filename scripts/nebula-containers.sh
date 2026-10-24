@@ -102,6 +102,104 @@ container_running() {
 
 kb_of_size() { du -sk "$1" 2>/dev/null | awk '{print $1+0}'; }
 
+# ------------------------------------------------------- image platform check
+# Docker Hub images are not built for every architecture: the official archlinux image, for
+# example, is amd64 only, so proot-distro used to fail halfway through the install. Ask the
+# registry which platforms an image has before offering it.
+ARCH_CACHE="$RUNTIME/nebula-containers-arch.cache"
+
+# Docker platform name for this device.
+device_arch() {
+  case "$(uname -m)" in
+    aarch64 | arm64) printf 'arm64\n' ;;
+    armv7l | armv8l | arm) printf 'arm\n' ;;
+    x86_64 | amd64) printf 'amd64\n' ;;
+    i686 | i386 | x86) printf '386\n' ;;
+    *) printf 'unknown\n' ;;
+  esac
+}
+
+image_platforms() {
+  local repo="$1" cached
+  case "$repo" in */*) ;; *) repo="library/$repo" ;; esac
+
+  cached="$(grep -m1 "^$repo=" "$ARCH_CACHE" 2>/dev/null | cut -d= -f2-)"
+  if [ -n "$cached" ]; then
+    printf '%s\n' "$cached"
+    return 0
+  fi
+
+  command -v python3 >/dev/null 2>&1 || { printf 'unknown\n'; return 0; }
+
+  local result
+  result="$(python3 - "$repo" <<'PY' 2>/dev/null
+import json, sys, urllib.request
+
+repo = sys.argv[1]
+
+def get(url, headers=None):
+    req = urllib.request.Request(url, headers=headers or {})
+    with urllib.request.urlopen(req, timeout=20) as r:
+        return json.load(r)
+
+try:
+    token = get(
+        "https://auth.docker.io/token?service=registry.docker.io&scope=repository:%s:pull" % repo
+    )["token"]
+    index = get(
+        "https://registry-1.docker.io/v2/%s/manifests/latest" % repo,
+        {
+            "Authorization": "Bearer " + token,
+            "Accept": (
+                "application/vnd.oci.image.index.v1+json, "
+                "application/vnd.docker.distribution.manifest.list.v2+json"
+            ),
+        },
+    )
+    arches = {
+        m.get("platform", {}).get("architecture", "")
+        for m in index.get("manifests", [])
+    }
+    arches = sorted(a for a in arches if a and a != "unknown")
+    if not arches:
+        # Single-platform image: the manifest has no list, read the config blob instead.
+        digest = index.get("config", {}).get("digest", "")
+        if digest:
+            config = get(
+                "https://registry-1.docker.io/v2/%s/blobs/%s" % (repo, digest),
+                {"Authorization": "Bearer " + token},
+            )
+            arch = config.get("architecture", "")
+            if arch and arch != "unknown":
+                arches = [arch]
+    print(" ".join(arches) if arches else "unknown")
+except Exception:
+    print("error")
+PY
+)"
+
+  if [ -z "$result" ] || [ "$result" = error ]; then
+    printf 'unknown\n'
+    return 0
+  fi
+  mkdir -p "$RUNTIME" 2>/dev/null
+  printf '%s=%s\n' "$repo" "$result" >>"$ARCH_CACHE" 2>/dev/null
+  printf '%s\n' "$result"
+}
+
+# Cannot tell (offline, unknown registry)? Stay permissive and let proot-distro decide.
+image_compatible() {
+  local image="$1" wanted platforms
+  wanted="$(device_arch)"
+  [ "$wanted" = unknown ] && return 0
+  platforms="$(image_platforms "$image")"
+  [ "$platforms" = unknown ] && return 0
+  case " $platforms " in
+    *" $wanted "*) return 0 ;;
+  esac
+  return 1
+}
+
 human_kb() {
   local kb="${1:-0}"
   if [ "$kb" -ge 1048576 ]; then
@@ -223,10 +321,13 @@ cmd_total() {
 }
 
 cmd_search() {
-  local query="${1:-}" json=0 a
-  [ -n "$query" ] || die "usage: nebula-containers search <query>" 2
+  local query="${1:-}" json=0 a compatible_only=0
+  [ -n "$query" ] || die "usage: nebula-containers search <query> [--json] [--compatible]" 2
   shift || true
-  for a in "$@"; do [ "$a" = "--json" ] && json=1; done
+  for a in "$@"; do
+    [ "$a" = "--json" ] && json=1
+    [ "$a" = "--compatible" ] && compatible_only=1
+  done
 
   local out
   out="$(proot-distro search "$query" 2>&1)" || die "search failed: $out"
@@ -259,6 +360,9 @@ cmd_search() {
   ')"
   while IFS=$'\037' read -r name desc stars pulls official; do
     [ -n "$name" ] || continue
+    if [ "$compatible_only" -eq 1 ] && ! image_compatible "$name"; then
+      continue
+    fi
     [ "$first" -eq 0 ] && printf ','
     first=0
     printf '{"name":%s,"description":%s,"stars":%s,"pulls":%s,"official":%s}' \
@@ -275,6 +379,9 @@ cmd_install() {
   for a in "$@"; do [ "$a" = "--desktop" ] && with_desktop=1; done
 
   command -v proot-distro >/dev/null || die "proot-distro is not installed (pkg install proot-distro)" 3
+  if ! image_compatible "$image"; then
+    die "'$image' has no image for $(device_arch) — available: $(image_platforms "$image")"
+  fi
   err "installing $image (this can take a few minutes)..."
   proot-distro install "$image" || die "install failed"
 

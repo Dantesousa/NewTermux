@@ -88,7 +88,7 @@ class ContainersActivity : AppCompatActivity() {
     }
 }
 
-private val QUICK_IMAGES = listOf("alpine", "debian", "ubuntu", "archlinux", "fedora", "kali")
+private val QUICK_IMAGES = listOf("alpine", "debian", "ubuntu", "fedora", "opensuse/leap", "almalinux")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
