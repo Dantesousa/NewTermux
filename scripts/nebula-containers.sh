@@ -31,6 +31,9 @@ RUNTIME="${TMPDIR:-$PREFIX_DIR/tmp}"
 DISPLAY_NUM="${NEBULA_DISPLAY:-:0}"
 VIEWER_PKG="com.termux.x11"
 
+# `am` and `pm` live in /system/bin; the app starts us with PATH=$PREFIX/bin only.
+export PATH="$PREFIX_DIR/bin:/system/bin:/system/xbin${PATH:+:$PATH}"
+
 err() { printf '%s\n' "nebula-containers: $*" >&2; }
 die() { err "$*"; exit "${2:-1}"; }
 
