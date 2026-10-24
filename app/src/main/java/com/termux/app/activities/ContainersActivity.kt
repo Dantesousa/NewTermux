@@ -204,6 +204,8 @@ private fun ContainersScreen(
             OverviewCard(
                 totals = totals,
                 loading = loading,
+                x11Running = doctor?.x11Running == true,
+                sessionRunning = containers.any { it.running },
                 onClearCache = {
                     runBusy("Clearing the image cache…", { NebulaContainers.clearCache(context) }) { result ->
                         scope.launch {
@@ -438,6 +440,8 @@ private fun SectionHeader(text: String) {
 private fun OverviewCard(
     totals: NebulaContainers.Totals,
     loading: Boolean,
+    x11Running: Boolean,
+    sessionRunning: Boolean,
     onClearCache: () -> Unit,
 ) {
     Card(
@@ -450,6 +454,19 @@ private fun OverviewCard(
             UsageRow("Containers", NebulaContainers.formatKb(totals.containersKb))
             UsageRow("Image cache", NebulaContainers.formatKb(totals.cacheKb))
             UsageRow("Free space", NebulaContainers.formatKb(totals.freeKb))
+            Spacer(Modifier.height(8.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(8.dp))
+            UsageRow("X11 server", if (x11Running) "running" else "stopped")
+            if (x11Running && !sessionRunning) {
+                Text(
+                    "The X11 server is up but no desktop session is running. Tap Desktop on a " +
+                        "container, or Stop X11 to shut it down.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
             Spacer(Modifier.height(4.dp))
             Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
                 TextButton(onClick = onClearCache, enabled = !loading && totals.cacheKb > 0) {

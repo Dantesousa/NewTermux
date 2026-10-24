@@ -49,6 +49,7 @@ object NebulaContainers {
         val termuxX11: Boolean,
         val viewer: Boolean,
         val freeKb: Long,
+        val x11Running: Boolean = false,
     )
 
     data class Result(val code: Int, val stdout: String, val stderr: String) {
@@ -249,6 +250,7 @@ object NebulaContainers {
                 termuxX11 = o.optBoolean("termux_x11"),
                 viewer = o.optBoolean("x11_viewer"),
                 freeKb = o.optLong("free_kb"),
+                x11Running = o.optBoolean("x11_running"),
             )
         }.getOrElse { Doctor(false, false, false, 0) }
     }

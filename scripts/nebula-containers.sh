@@ -520,20 +520,23 @@ cmd_doctor() {
   local json=0 a
   for a in "$@"; do [ "$a" = "--json" ] && json=1; done
 
-  local pd_ok=false x11_ok=false viewer_ok=false cache_ok=false free_kb=0
+  local pd_ok=false x11_ok=false viewer_ok=false cache_ok=false free_kb=0 x11_up=false
   command -v proot-distro >/dev/null 2>&1 && pd_ok=true
   command -v termux-x11 >/dev/null 2>&1 && x11_ok=true
   command -v am >/dev/null 2>&1 && pm list packages 2>/dev/null | grep -q "$VIEWER_PKG" && viewer_ok=true
+  x11_running && x11_up=true
   [ -n "$(cache_dir)" ] && cache_ok=true
   free_kb="$(df -k "$PD_ROOT" 2>/dev/null | awk 'NR==2{print $4+0}')"
 
   if [ "$json" -eq 1 ]; then
-    printf '{"proot_distro":%s,"termux_x11":%s,"x11_viewer":%s,"free_kb":%s}\n' \
-      "$(json_bool "$pd_ok")" "$(json_bool "$x11_ok")" "$(json_bool "$viewer_ok")" "${free_kb:-0}"
+    printf '{"proot_distro":%s,"termux_x11":%s,"x11_viewer":%s,"x11_running":%s,"free_kb":%s}\n' \
+      "$(json_bool "$pd_ok")" "$(json_bool "$x11_ok")" "$(json_bool "$viewer_ok")" \
+      "$(json_bool "$x11_up")" "${free_kb:-0}"
     return 0
   fi
   printf 'proot-distro   %s\n' "$( [ "$pd_ok" = true ] && echo ok || echo missing)"
   printf 'termux-x11     %s\n' "$( [ "$x11_ok" = true ] && echo ok || echo missing)"
+  printf 'X11 server     %s\n' "$( [ "$x11_up" = true ] && echo running || echo stopped)"
   printf 'X11 viewer     %s\n' "$( [ "$viewer_ok" = true ] && echo ok || echo missing)"
   printf 'free space     %s\n' "$(human_kb "${free_kb:-0}")"
 }
