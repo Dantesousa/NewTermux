@@ -443,19 +443,29 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         String pendingCmd = com.newtermux.features.NewTermuxSettings.getPendingCommand(this);
         if (pendingCmd != null) {
             com.newtermux.features.NewTermuxSettings.clearPendingCommand(this);
-            TerminalSession session = getCurrentSession();
-            if (session != null) {
-                byte[] bytes = pendingCmd.getBytes();
-                session.write(bytes, 0, bytes.length);
-            }
+            runCommandInSession(pendingCmd);
         }
 
         maybeLaunchAutostartContainer();
     }
 
+    /** Writes a command into the live session, or queues it for the next resume when there is none. */
+    private void runCommandInSession(String command) {
+        if (command == null || command.isEmpty()) return;
+        TerminalSession session = getCurrentSession();
+        if (session == null) {
+            com.newtermux.features.NewTermuxSettings.setPendingCommand(this, command);
+            return;
+        }
+        byte[] bytes = command.getBytes();
+        session.write(bytes, 0, bytes.length);
+    }
+
     /**
      * Starts the Linux desktop the user pinned in Settings → Linux Containers. Runs once per
-     * process so returning to the app does not spawn a second session.
+     * process so returning to the app does not spawn a second session. It goes through a terminal
+     * session on purpose: a detached child of the app is killed by Android when the X11 viewer
+     * takes the foreground.
      */
     private void maybeLaunchAutostartContainer() {
         if (mContainerAutostartLaunched) return;
@@ -463,7 +473,8 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         if (container == null) return;
         mContainerAutostartLaunched = true;
         try {
-            com.newtermux.features.NebulaContainers.INSTANCE.startDesktop(this, container, "desktop");
+            runCommandInSession(
+                com.newtermux.features.NebulaContainers.INSTANCE.desktopCommand(container, "desktop"));
         } catch (Exception e) {
             Logger.logError(LOG_TAG, "Failed to start the container desktop: " + e);
         }

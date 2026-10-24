@@ -277,23 +277,17 @@ object NebulaContainers {
             append(" install ")
             append(name)
             if (withDesktop) append(" --desktop")
+            append("\n")
         }
 
     /**
-     * Starts the desktop in the background and returns immediately. The helper detaches itself, so
-     * the app does not have to babysit a long-lived process.
+     * Command that opens the desktop. It has to run inside a Termux terminal session, not as a
+     * detached child of the app: when the X11 viewer comes to the front the app is backgrounded and
+     * Android kills phantom child processes, which used to take the container session down while
+     * the X server stayed up.
      */
-    fun startDesktop(context: Context, name: String, app: String = "desktop") {
-        val script = ensureScript(context)
-        val prefix = prefixDir(context)
-        val log = File(prefix, "tmp/nebula-containers-gui.log")
-        val command = "setsid nohup '${script.path}' gui start '$name' --app '$app' --no-viewer " +
-            ">> '${log.path}' 2>&1 &"
-        runCatching {
-            newProcess(context, listOf(File(prefix, "bin/bash").path, "-c", command)).start()
-        }.onFailure { Log.e(TAG, "could not start desktop: ${it.message}") }
-        openX11Viewer(context)
-    }
+    fun desktopCommand(name: String, app: String = "desktop"): String =
+        "$SCRIPT_NAME gui start $name --app $app\n"
 
     fun openX11Viewer(context: Context): Boolean {
         val intent = context.packageManager.getLaunchIntentForPackage(X11_VIEWER_PACKAGE) ?: return false

@@ -139,13 +139,13 @@ private fun ContainersScreen(
         }
     }
 
-    fun startDesktop(container: NebulaContainers.Container, app: String) {
+    fun startDesktop(container: NebulaContainers.Container, app: String, runInTerminal: (String) -> Unit) {
         scope.launch {
             busy = "Checking ${container.name}…"
             val ready = NebulaContainers.desktopReady(context, container.name)
             busy = null
             if (ready) {
-                NebulaContainers.startDesktop(context, container.name, app)
+                runInTerminal(NebulaContainers.desktopCommand(container.name, app))
                 snackbar.showSnackbar("Starting $app in ${container.name}")
             } else {
                 desktopOffer = container
@@ -241,7 +241,7 @@ private fun ContainersScreen(
                         container = container,
                         enabled = busy == null,
                         onDesktop = { desktopChoice = container },
-                        onTerminal = { onRunInTerminal("proot-distro login ${container.name}") },
+                        onTerminal = { onRunInTerminal("proot-distro login ${container.name}\n") },
                         onRemove = { confirmRemove = container },
                         onReinstall = {
                             onRunInTerminal(
@@ -379,9 +379,9 @@ private fun ContainersScreen(
             title = { Text("Open in ${container.name}") },
             text = {
                 Column {
-                    DesktopOption("Desktop") { desktopChoice = null; startDesktop(container, "desktop") }
-                    DesktopOption("Chromium") { desktopChoice = null; startDesktop(container, "chromium") }
-                    DesktopOption("Terminal only") { desktopChoice = null; startDesktop(container, "terminal") }
+                    DesktopOption("Desktop") { desktopChoice = null; startDesktop(container, "desktop", onRunInTerminal) }
+                    DesktopOption("Chromium") { desktopChoice = null; startDesktop(container, "chromium", onRunInTerminal) }
+                    DesktopOption("Terminal only") { desktopChoice = null; startDesktop(container, "terminal", onRunInTerminal) }
                 }
             },
             confirmButton = {},
