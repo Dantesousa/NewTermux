@@ -303,10 +303,10 @@ cmd_clear_cache() {
 
 desktop_packages() {
   case "$1" in
-    apk) printf 'openbox chromium xterm font-noto ttf-dejavu dbus-x11 imagemagick\n' ;;
-    apt) printf 'openbox chromium xterm fonts-dejavu dbus-x11 imagemagick\n' ;;
-    pacman) printf 'openbox chromium xterm ttf-dejavu dbus imagemagick\n' ;;
-    dnf) printf 'openbox chromium xterm dejavu-sans-fonts dbus-x11 ImageMagick\n' ;;
+    apk) printf 'openbox chromium xterm font-noto ttf-dejavu dbus-x11 imagemagick xsetroot\n' ;;
+    apt) printf 'openbox chromium xterm fonts-dejavu dbus-x11 imagemagick x11-xserver-utils\n' ;;
+    pacman) printf 'openbox chromium xterm ttf-dejavu dbus imagemagick xorg-xsetroot\n' ;;
+    dnf) printf 'openbox chromium xterm dejavu-sans-fonts dbus-x11 ImageMagick xorg-x11-server-utils\n' ;;
     *) return 1 ;;
   esac
 }
@@ -418,9 +418,10 @@ cmd_gui_start() {
 
   local cmd
   case "$app" in
-    desktop) cmd='openbox-session >/dev/null 2>&1 & sleep 1; exec xterm' ;;
-    chromium) cmd='exec chromium --no-sandbox --disable-dev-shm-usage' ;;
-    terminal) cmd='exec xterm' ;;
+    # openbox paints the frame, xsetroot kills the harsh black, xterm takes the whole screen.
+    desktop) cmd='openbox-session >/dev/null 2>&1 & sleep 1; xsetroot -solid "#12121a" 2>/dev/null; xterm -fullscreen -fa "Monospace:pixelsize=44" -bg "#12121a" -fg "#e6e6e6" -title Nebula; pkill -x openbox >/dev/null 2>&1' ;;
+    chromium) cmd='xsetroot -solid "#12121a" 2>/dev/null; exec chromium --no-sandbox --disable-dev-shm-usage --start-maximized' ;;
+    terminal) cmd='exec xterm -fa "Monospace:pixelsize=44" -bg "#12121a" -fg "#e6e6e6" -title Nebula' ;;
     *) die "unknown app: $app (desktop|chromium|terminal)" 2 ;;
   esac
 

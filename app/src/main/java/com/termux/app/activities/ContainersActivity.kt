@@ -114,6 +114,7 @@ private fun ContainersScreen(
 
     var confirmRemove by remember { mutableStateOf<NebulaContainers.Container?>(null) }
     var desktopOffer by remember { mutableStateOf<NebulaContainers.Container?>(null) }
+    var desktopChoice by remember { mutableStateOf<NebulaContainers.Container?>(null) }
 
     var autostart by remember { mutableStateOf(NewTermuxSettings.getAutostartContainer(context)) }
     var autostartOpen by remember { mutableStateOf(false) }
@@ -138,14 +139,14 @@ private fun ContainersScreen(
         }
     }
 
-    fun startDesktop(container: NebulaContainers.Container) {
+    fun startDesktop(container: NebulaContainers.Container, app: String) {
         scope.launch {
             busy = "Checking ${container.name}…"
             val ready = NebulaContainers.desktopReady(context, container.name)
             busy = null
             if (ready) {
-                NebulaContainers.startDesktop(context, container.name)
-                snackbar.showSnackbar("Starting the desktop in ${container.name}")
+                NebulaContainers.startDesktop(context, container.name, app)
+                snackbar.showSnackbar("Starting $app in ${container.name}")
             } else {
                 desktopOffer = container
             }
@@ -224,7 +225,7 @@ private fun ContainersScreen(
                     ContainerCard(
                         container = container,
                         enabled = busy == null,
-                        onDesktop = { startDesktop(container) },
+                        onDesktop = { desktopChoice = container },
                         onTerminal = { onRunInTerminal("proot-distro login ${container.name}") },
                         onRemove = { confirmRemove = container },
                         onReinstall = {
@@ -357,6 +358,22 @@ private fun ContainersScreen(
         )
     }
 
+    desktopChoice?.let { container ->
+        AlertDialog(
+            onDismissRequest = { desktopChoice = null },
+            title = { Text("Open in ${container.name}") },
+            text = {
+                Column {
+                    DesktopOption("Desktop") { desktopChoice = null; startDesktop(container, "desktop") }
+                    DesktopOption("Chromium") { desktopChoice = null; startDesktop(container, "chromium") }
+                    DesktopOption("Terminal only") { desktopChoice = null; startDesktop(container, "terminal") }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { desktopChoice = null }) { Text("Cancel") } },
+        )
+    }
+
     desktopOffer?.let { container ->
         AlertDialog(
             onDismissRequest = { desktopOffer = null },
@@ -387,6 +404,18 @@ private fun ContainersScreen(
 }
 
 // ---------------------------------------------------------------- pieces
+
+@Composable
+private fun DesktopOption(label: String, onClick: () -> Unit) {
+    Text(
+        label,
+        style = MaterialTheme.typography.bodyLarge,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 12.dp),
+    )
+}
 
 @Composable
 private fun SectionHeader(text: String) {
