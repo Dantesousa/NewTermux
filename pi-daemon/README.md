@@ -1,20 +1,20 @@
-# pi-daemon — daemon RPC do Nebula Pi (Termux)
+# pi-daemon — Nebula Pi RPC daemon (Termux)
 
-Espelha `~/work/nebula-pi/daemon/` — fonte versionada do que roda no Termux.
+Mirrors `~/work/nebula-pi/daemon/` — the versioned source of what runs in Termux.
 
-- `pi-rpc-daemon.mjs` — socket TCP 127.0.0.1:37877 <-> `pi --mode rpc` (JSONL).
-  Comandos próprios `nebula_*` respondidos no daemon:
+- `pi-rpc-daemon.mjs` — TCP socket 127.0.0.1:37877 <-> `pi --mode rpc` (JSONL).
+  Daemon-owned `nebula_*` commands are answered in the daemon:
   - `nebula_sessions` / `nebula_delete_session` / `nebula_rename_session`
-  - `nebula_memory` (lê `~/.pi/agent/pi-hermes-memory/{MEMORY,USER,failures}.md`,
-    formato `§`-separado) / `nebula_memory_save`
-- `pi-rpc-start.sh` — sobe em background (setsid/nohup), port/pid/log em `~/.cache/nebula-pi/`
-- `pi-probe.mjs` — healthcheck (`get_state`)
+  - `nebula_memory` (reads `~/.pi/agent/pi-hermes-memory/{MEMORY,USER,failures}.md`,
+    `§`-separated format) / `nebula_memory_save`
+- `pi-rpc-start.sh` — starts it in the background (setsid/nohup), port/pid/log in `~/.cache/nebula-pi/`
+- `pi-probe.mjs` — health check (`get_state`)
 
-Uso no Termux:
+Usage in Termux:
 
 ```bash
-pi-rpc              # sobe (~/bin/pi-rpc -> este start.sh)
-pi-rpc-test         # testa (prompt + imagem)
+pi-rpc              # starts it (~/bin/pi-rpc -> this start.sh)
+pi-rpc-test         # tests it (prompt + image)
 ```
 
-Sync: após editar aqui, copiar de volta pra `~/work/nebula-pi/daemon/` (ou o inverso) — os dois precisam ficar iguais.
+Sync: after editing here, copy back to `~/work/nebula-pi/daemon/` (or the other way around) — both must stay identical.

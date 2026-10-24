@@ -34,6 +34,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -58,11 +59,14 @@ import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -74,8 +78,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -90,6 +92,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -108,12 +111,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Tela do Pi dentro do Nebula: conversa em estilo chat, com os blocos
- * tecnicos (raciocinio, tool calls, bash) em monoespacada e expansiveis.
+ * Pi screen inside Nebula: chat style conversation, with the
+ * technical blocks (reasoning, tool calls, bash) in monospace and collapsible.
  *
- * Alem da conversa: palette de slash commands, troca de modelo/nivel de
- * raciocinio, anexos (imagem embutida, documento copiado) e os dialogs que o
- * Pi pede via extension UI.
+ * Beyond the conversation: slash command palette, model/thinking level
+ * switching, attachments (embedded image, copied document) and the dialogs Pi
+ * asks for through the extension UI.
  */
 class PiActivity : ComponentActivity() {
 
@@ -137,9 +140,9 @@ class PiActivity : ComponentActivity() {
     }
 
     /**
-     * Pede uma vez a permissao "Display over other apps". Sem ela, o Termux
-     * nao consegue abrir activities em background (e o comando `pi-panel` do
-     * terminal nao funciona).
+     * Requests the "Display over other apps" permission once. Without it Termux
+     * cannot start activities in the background (and the terminal `pi-panel`
+     * command does not work).
      */
     private fun requestOverlayPermissionOnce() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
@@ -151,11 +154,11 @@ class PiActivity : ComponentActivity() {
                 com.termux.shared.android.PermissionUtils.requestDisplayOverOtherAppsPermission(this)
             }
         } catch (e: Exception) {
-            Log.w(TAG, "nao consegui pedir a permissao de overlay", e)
+            Log.w(TAG, "could not request the overlay permission", e)
         }
     }
 
-    /** Recebe texto ou imagem compartilhados de outro app. */
+    /** Receives text or images shared from another app. */
     private fun handleShareIntent(intent: Intent?) {
         if (intent == null) return
         if (intent.action != Intent.ACTION_SEND) return
@@ -179,7 +182,7 @@ class PiActivity : ComponentActivity() {
                 if (bytes == null || bytes.isEmpty()) return@Thread
                 runOnUiThread {
                     PiSession.shared = PiShared(
-                        "Analise esta imagem:",
+                        "Analyze this image:",
                         PiAttachment(name, mime, null, PiAttach.toBase64(bytes), isImage = true)
                     )
                 }
@@ -192,14 +195,14 @@ class PiActivity : ComponentActivity() {
     }
 
     /**
-     * Loga qualquer crash no logcat (tag NebulaPi) antes de delegar ao
-     * handler padrao. O Termux consegue ler o logcat do sistema, entao da
-     * para diagnosticar o app demo (com.termux.demo) de fora.
+     * Logs any crash to logcat (tag NebulaPi) before delegating to the
+     * default handler. Termux can read the system logcat, so it is
+     * possible to diagnose the demo app (com.termux.demo) from outside.
      */
     private fun installCrashLogger() {
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, error ->
-            Log.e(TAG, "CRASH na thread ${thread.name}", error)
+            Log.e(TAG, "CRASH on thread ${thread.name}", error)
             previous?.uncaughtException(thread, error)
         }
     }
@@ -211,7 +214,7 @@ class PiActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
-        // A conexao fica viva: reconectar e mais barato que refazer a sessao do Pi.
+        // The connection stays alive: reconnecting is cheaper than rebuilding the Pi session.
     }
 
     override fun onDestroy() {
@@ -236,13 +239,13 @@ fun PiScreen() {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
 
-    // rola para o fim quando chega mensagem nova
+    // scroll to the end when a new message arrives
     LaunchedEffect(PiSession.items.size) {
         val last = PiSession.items.size - 1
         if (last >= 0) listState.animateScrollToItem(last)
     }
 
-    // conteudo compartilhado de outro app: preenche o campo e/ou anexa
+    // content shared from another app: fills the field and/or attaches
     LaunchedEffect(PiSession.shared) {
         val shared = PiSession.shared ?: return@LaunchedEffect
         PiSession.shared = null
@@ -263,11 +266,11 @@ fun PiScreen() {
             val name = PiAttach.displayName(context, uri)
             val bytes = withContext(Dispatchers.IO) { PiAttach.readBytes(context, uri) }
             if (bytes == null || bytes.isEmpty()) {
-                notice("Nao consegui ler $name")
+                notice("Could not read $name")
                 return@launch
             }
             if (bytes.size > 12 * 1024 * 1024) {
-                notice("$name e grande demais (${bytes.size / 1024 / 1024} MB) para embutir como imagem")
+                notice("$name is too large (${bytes.size / 1024 / 1024} MB) to embed as an image")
                 return@launch
             }
             PiSession.addAttachment(
@@ -283,10 +286,10 @@ fun PiScreen() {
             val mime = PiAttach.mimeOf(context, uri)
             val path = withContext(Dispatchers.IO) { PiAttach.copyToShared(context, uri, name) }
             if (path == null) {
-                notice("Nao consegui copiar $name para o armazenamento compartilhado")
+                notice("Could not copy $name to shared storage")
                 return@launch
             }
-            // Preview: primeiras linhas do texto, pra dar contexto no chip.
+            // Preview: first lines of the text, to give context in the chip.
             val preview = withContext(Dispatchers.IO) { PiAttach.previewOf(path) }
             PiSession.addAttachment(
                 PiAttachment(name, mime, path, null, isImage = false, preview = preview)
@@ -300,7 +303,7 @@ fun PiScreen() {
         if (granted) {
             docPicker.launch(arrayOf("*/*"))
         } else {
-            notice("Permissao de armazenamento negada: nao da para anexar documentos")
+            notice("Storage permission denied: cannot attach documents")
         }
     }
 
@@ -315,7 +318,7 @@ fun PiScreen() {
         }
     }
 
-    // ------------------------------------------------------------ voz (microfone)
+    // ------------------------------------------------------- voice (microphone)
 
     val speech = remember(context) { SpeechInputManager(context) }
     DisposableEffect(speech) {
@@ -324,7 +327,7 @@ fun PiScreen() {
 
     fun startListening() {
         if (!SpeechInputManager.isAvailable(context)) {
-            notice("Reconhecimento de voz indisponivel neste aparelho")
+            notice("Voice recognition unavailable on this device")
             return
         }
         speech.setCallback(object : SpeechInputManager.SpeechCallback {
@@ -334,7 +337,7 @@ fun PiScreen() {
             }
 
             override fun onError(error: String) {
-                notice("Microfone: $error")
+                notice("Microphone: $error")
                 listening = false
             }
 
@@ -349,7 +352,7 @@ fun PiScreen() {
         try {
             speech.startListening()
         } catch (e: Exception) {
-            notice("Nao consegui abrir o microfone")
+            notice("Could not open the microphone")
             listening = false
         }
     }
@@ -358,7 +361,7 @@ fun PiScreen() {
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) startListening()
-        else notice("Permissao de microfone negada")
+        else notice("Microphone permission denied")
     }
 
     fun tapMic() {
@@ -377,53 +380,7 @@ fun PiScreen() {
     // ------------------------------------------------------------ tela
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text("Nebula Pi", fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
-                        Text(
-                            PiSession.status,
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1
-                        )
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { PiSession.openEngines() }) {
-                        Icon(Icons.Default.Memory, contentDescription = "Engine", modifier = Modifier.size(20.dp))
-                    }
-                    IconButton(onClick = { PiSession.openProviders() }) {
-                        Icon(Icons.Default.Key, contentDescription = "Provedores", modifier = Modifier.size(20.dp))
-                    }
-                    IconButton(onClick = { PiSession.openMemory() }) {
-                        Icon(Icons.Default.Psychology, contentDescription = "Memoria", modifier = Modifier.size(20.dp))
-                    }
-                    IconButton(onClick = { PiSession.openTheme() }) {
-                        Icon(Icons.Default.Palette, contentDescription = "Tema", modifier = Modifier.size(20.dp))
-                    }
-                    IconButton(onClick = { PiSession.openSessions() }) {
-                        Icon(Icons.Default.History, contentDescription = "Sessoes", modifier = Modifier.size(20.dp))
-                    }
-                    IconButton(onClick = { PiSession.openCommandPalette() }) {
-                        Icon(Icons.Default.List, contentDescription = "Comandos", modifier = Modifier.size(20.dp))
-                    }
-                    IconButton(onClick = {
-                        PiSession.stop()
-                        PiSession.start()
-                    }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Reconectar", modifier = Modifier.size(20.dp))
-                    }
-                    IconButton(onClick = { PiSession.clear() }) {
-                        Icon(Icons.Default.Delete, contentDescription = "Limpar", modifier = Modifier.size(20.dp))
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
-            )
-        },
+        topBar = { NebulaTopBar() },
         bottomBar = {
             Surface(color = MaterialTheme.colorScheme.surface) {
                 Column(
@@ -472,7 +429,7 @@ fun PiScreen() {
                                     trailingIcon = {
                                         Icon(
                                             Icons.Default.Close,
-                                            contentDescription = "Remover",
+                                            contentDescription = "Remove",
                                             modifier = Modifier.size(14.dp)
                                         )
                                     }
@@ -487,15 +444,15 @@ fun PiScreen() {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         IconButton(onClick = { imagePicker.launch(arrayOf("image/*")) }) {
-                            Icon(Icons.Default.AttachFile, contentDescription = "Anexar imagem")
+                            Icon(Icons.Default.AttachFile, contentDescription = "Attach image")
                         }
                         IconButton(onClick = { pickDocument() }) {
-                            Icon(Icons.Default.Description, contentDescription = "Anexar documento")
+                            Icon(Icons.Default.Description, contentDescription = "Attach document")
                         }
                         IconButton(onClick = { tapMic() }) {
                             Icon(
                                 Icons.Default.Mic,
-                                contentDescription = if (listening) "Parar de ouvir" else "Ditar",
+                                contentDescription = if (listening) "Stop listening" else "Dictate",
                                 tint = if (listening) MaterialTheme.colorScheme.error
                                 else MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -506,8 +463,8 @@ fun PiScreen() {
                             modifier = Modifier.weight(1f),
                             placeholder = {
                                 Text(
-                                    if (listening) "Ouvindo... fale agora"
-                                    else "Fale com o Pi... (/ comandos, @ arquivo)",
+                                    if (listening) "Listening... speak now"
+                                    else "Talk to Pi... (/ commands, @ file)",
                                     fontSize = 14.sp
                                 )
                             },
@@ -520,7 +477,7 @@ fun PiScreen() {
                             IconButton(onClick = { PiSession.abort() }) {
                                 Icon(
                                     Icons.Default.Stop,
-                                    contentDescription = "Parar",
+                                    contentDescription = "Stop",
                                     tint = MaterialTheme.colorScheme.error
                                 )
                             }
@@ -535,7 +492,7 @@ fun PiScreen() {
                             },
                             enabled = input.isNotBlank() || PiSession.attachments.isNotEmpty()
                         ) {
-                            Icon(Icons.Default.Send, contentDescription = "Enviar")
+                            Icon(Icons.Default.Send, contentDescription = "Send")
                         }
                     }
                 }
@@ -592,7 +549,145 @@ fun PiScreen() {
     }
 }
 
-// -------------------------------------------------------------- seletor de comandos
+// ------------------------------------------------------------------ top bar
+
+/**
+ * Slim top bar: connection state, sessions, current model and thinking level.
+ * Everything configuration-related lives behind the gear menu.
+ */
+@Composable
+private fun NebulaTopBar() {
+    var menuOpen by remember { mutableStateOf(false) }
+    val modelLabel = PiSession.model.ifEmpty { "model" }
+    val thinkLabel = PiSession.thinkingLevel.ifEmpty { "thinking" }
+
+    Surface(color = MaterialTheme.colorScheme.surface) {
+        Column(modifier = Modifier.fillMaxWidth().statusBarsPadding()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(46.dp)
+                    .padding(start = 14.dp, end = 2.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(7.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(
+                            if (PiSession.connected) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.outline
+                        )
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    if (PiSession.connected) "Nebula Pi" else PiSession.status,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(onClick = { PiSession.openSessions() }) {
+                    Icon(
+                        Icons.Default.History,
+                        contentDescription = "Sessions",
+                        modifier = Modifier.size(21.dp)
+                    )
+                }
+                Box {
+                    IconButton(onClick = { menuOpen = true }) {
+                        Icon(
+                            Icons.Default.Settings,
+                            contentDescription = "Options and settings",
+                            modifier = Modifier.size(21.dp)
+                        )
+                    }
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        TopMenuItem("Engine", Icons.Default.Memory) {
+                            menuOpen = false
+                            PiSession.openEngines()
+                        }
+                        TopMenuItem("Providers", Icons.Default.Key) {
+                            menuOpen = false
+                            PiSession.openProviders()
+                        }
+                        TopMenuItem("Memory", Icons.Default.Psychology) {
+                            menuOpen = false
+                            PiSession.openMemory()
+                        }
+                        TopMenuItem("Theme", Icons.Default.Palette) {
+                            menuOpen = false
+                            PiSession.openTheme()
+                        }
+                        TopMenuItem("Pi commands", Icons.Default.List) {
+                            menuOpen = false
+                            PiSession.openCommandPalette()
+                        }
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                        TopMenuItem("Reconnect", Icons.Default.Refresh) {
+                            menuOpen = false
+                            PiSession.stop()
+                            PiSession.start()
+                        }
+                        TopMenuItem("Clear conversation", Icons.Default.Delete) {
+                            menuOpen = false
+                            PiSession.clear()
+                        }
+                    }
+                }
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 14.dp, end = 10.dp, bottom = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TopPill(text = modelLabel, modifier = Modifier.weight(1f)) {
+                    PiSession.openModels()
+                }
+                TopPill(text = "thinking: $thinkLabel") {
+                    PiSession.openThinking()
+                }
+            }
+        }
+    }
+}
+
+/** Tappable pill in the top bar (model and thinking level). */
+@Composable
+private fun TopPill(text: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Surface(
+        modifier = modifier.clickable(onClick = onClick),
+        shape = RoundedCornerShape(50),
+        color = MaterialTheme.colorScheme.surfaceVariant
+    ) {
+        Text(
+            text,
+            fontSize = 11.sp,
+            fontFamily = FontFamily.Monospace,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+        )
+    }
+}
+
+/** Item of the gear menu. */
+@Composable
+private fun TopMenuItem(label: String, icon: ImageVector, onClick: () -> Unit) {
+    DropdownMenuItem(
+        text = { Text(label, fontSize = 14.sp) },
+        leadingIcon = {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+        },
+        onClick = onClick
+    )
+}
+
+// --------------------------------------------------------------- command picker
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -604,7 +699,7 @@ private fun CommandSheet() {
         LazyColumn(modifier = Modifier.heightIn(max = 520.dp)) {
             item {
                 Text(
-                    "Comandos do Pi",
+                    "Pi commands",
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
@@ -615,7 +710,7 @@ private fun CommandSheet() {
                 item {
                     HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
                     Text(
-                        "Extensoes, templates e skills",
+                        "Extensions, templates and skills",
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
@@ -656,21 +751,21 @@ private fun ProviderSheet() {
     ModalBottomSheet(onDismissRequest = { PiSession.picker = null }) {
         LazyColumn(modifier = Modifier.heightIn(max = 520.dp)) {
             item {
-                Text("Provedores", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
-                Text("Toque para colar a chave (salva em auth.json). ● = configurado.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp))
+                Text("Providers", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                Text("Tap to paste the key (saved in auth.json). ● = configured.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp))
             }
             if (all.isEmpty()) {
-                item { Text("Carregando...", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp)) }
+                item { Text("Loading...", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp)) }
             }
             if (featured.isNotEmpty()) {
                 item {
-                    Text("★ OpenCode (recomendado)", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
+                    Text("★ OpenCode (recommended)", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
                 }
             }
             items(featured) { p -> ProviderRow(p, highlight = true) }
             if (rest.isNotEmpty()) {
                 item {
-                    Text("Todos os provedores do Pi", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
+                    Text("All Pi providers", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
                 }
             }
             items(rest) { p -> ProviderRow(p, highlight = false) }
@@ -688,7 +783,7 @@ private fun ProviderRow(p: com.newtermux.pi.PiSession.PiProvider, highlight: Boo
         }
         if (p.configured && !p.viaEnv) {
             IconButton(onClick = { PiSession.removeProvider(p) }) {
-                Icon(Icons.Default.Delete, contentDescription = "Remover", modifier = Modifier.size(18.dp))
+                Icon(Icons.Default.Delete, contentDescription = "Remove", modifier = Modifier.size(18.dp))
             }
         }
     }
@@ -703,15 +798,15 @@ private fun EngineSheet() {
         LazyColumn(modifier = Modifier.heightIn(max = 400.dp)) {
             item {
                 Text("Engine", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
-                Text("Pi (Node) ou Pi-Bolt (nativo). Troca sem reconectar — mesma pasta, mesmas sessoes.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp))
+                Text("Pi (Node) or Pi-Bolt (native). Switches without reconnecting — same folder, same sessions.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp))
             }
             if (engines.isEmpty()) {
-                item { Text("Carregando...", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp)) }
+                item { Text("Loading...", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp)) }
             }
             items(engines) { e ->
                 Column(modifier = Modifier.fillMaxWidth().clickable(enabled = e.available) { PiSession.chooseEngine(e.id) }.padding(horizontal = 16.dp, vertical = 10.dp)) {
                     Text((if (e.id == current) "● " else "○ ") + e.name, fontSize = 14.sp, fontWeight = if (e.id == current) FontWeight.SemiBold else FontWeight.Normal, color = if (e.available) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(e.id + (if (e.available) "" else " (indisponivel)"), fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(e.id + (if (e.available) "" else " (unavailable)"), fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             item { Spacer(Modifier.height(24.dp)) }
@@ -727,7 +822,7 @@ private fun ModelSheet() {
         LazyColumn(modifier = Modifier.heightIn(max = 520.dp)) {
             item {
                 Text(
-                    "Modelos",
+                    "Models",
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
@@ -736,7 +831,7 @@ private fun ModelSheet() {
             if (models.isEmpty()) {
                 item {
                     Text(
-                        "Carregando...",
+                        "Loading...",
                         fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(16.dp)
@@ -772,7 +867,7 @@ private fun ThinkingSheet() {
         LazyColumn(modifier = Modifier.heightIn(max = 400.dp)) {
             item {
                 Text(
-                    "Nivel de raciocinio",
+                    "Thinking level",
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
@@ -781,7 +876,7 @@ private fun ThinkingSheet() {
             if (levels.isEmpty()) {
                 item {
                     Text(
-                        "Carregando...",
+                        "Loading...",
                         fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(16.dp)
@@ -813,13 +908,13 @@ private fun ThemeSheet() {
         LazyColumn(modifier = Modifier.heightIn(max = 520.dp)) {
             item {
                 Text(
-                    "Cor de destaque",
+                    "Accent color",
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                 )
                 Text(
-                    "Muda a cor do app inteiro (Termux e Nebula Pi).",
+                    "Changes the color of the whole app (Termux and Nebula Pi).",
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
@@ -891,7 +986,7 @@ private fun MemorySheet() {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    "Memoria",
+                    "Memory",
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f)
@@ -899,7 +994,7 @@ private fun MemorySheet() {
                 TextButton(onClick = { showSave = true }) {
                     Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("Salvar", fontSize = 13.sp)
+                    Text("Save", fontSize = 13.sp)
                 }
             }
             OutlinedTextField(
@@ -908,7 +1003,7 @@ private fun MemorySheet() {
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp),
-                placeholder = { Text("Buscar nas ${all.size} memorias...", fontSize = 13.sp) },
+                placeholder = { Text("Search ${all.size} memories...", fontSize = 13.sp) },
                 textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp),
                 singleLine = true
             )
@@ -916,7 +1011,7 @@ private fun MemorySheet() {
                 if (list.isEmpty()) {
                     item {
                         Text(
-                            if (all.isEmpty()) "Nenhuma memoria encontrada" else "Nada encontrado",
+                            if (all.isEmpty()) "No memories found" else "Nothing found",
                             fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(16.dp)
@@ -957,13 +1052,13 @@ private fun SaveMemoryDialog(onDismiss: () -> Unit) {
     val files = listOf("MEMORY.md", "USER.md", "failures.md")
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Salvar memoria") },
+        title = { Text("Save memory") },
         text = {
             Column {
                 OutlinedTextField(
                     value = text,
                     onValueChange = { text = it },
-                    placeholder = { Text("O que voce quer que eu lembre?") },
+                    placeholder = { Text("What should I remember?") },
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 2
                 )
@@ -994,10 +1089,10 @@ private fun SaveMemoryDialog(onDismiss: () -> Unit) {
                     onDismiss()
                 },
                 enabled = text.isNotBlank()
-            ) { Text("Salvar") }
+            ) { Text("Save") }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancelar") }
+            TextButton(onClick = onDismiss) { Text("Cancel") }
         }
     )
 }
@@ -1012,7 +1107,7 @@ private fun SessionsSheet() {
         LazyColumn(modifier = Modifier.heightIn(max = 560.dp)) {
             item {
                 Text(
-                    "Sessoes",
+                    "Sessions",
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
@@ -1031,11 +1126,11 @@ private fun SessionsSheet() {
                         tint = MaterialTheme.colorScheme.primary
                     )
                     Spacer(Modifier.width(10.dp))
-                    Text("Nova sessao", fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
+                    Text("New session", fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
                 }
                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                 Text(
-                    "Toque para abrir a sessao. A lixeira apaga o arquivo.",
+                    "Tap to open the session. The trash icon deletes the file.",
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
@@ -1048,7 +1143,7 @@ private fun SessionsSheet() {
                         .padding(horizontal = 16.dp, vertical = 6.dp),
                     placeholder = {
                         Text(
-                            "Buscar nas ${PiSession.sessions.size} sessoes...",
+                            "Search ${PiSession.sessions.size} sessions...",
                             fontSize = 13.sp
                         )
                     },
@@ -1059,7 +1154,7 @@ private fun SessionsSheet() {
             if (sessions.isEmpty()) {
                 item {
                     Text(
-                        "Nenhuma sessao encontrada",
+                        "No sessions found",
                         fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(16.dp)
@@ -1077,13 +1172,13 @@ private fun SessionsSheet() {
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            (if (isCurrent) "● " else "") + s.title.ifEmpty { "(sem titulo)" },
+                            (if (isCurrent) "● " else "") + s.title.ifEmpty { "(untitled)" },
                             fontSize = 14.sp,
                             maxLines = 2
                         )
                         Text(
-                            s.userMessages.toString() + " perguntas · " +
-                                s.messages.toString() + " mensagens · " +
+                            s.userMessages.toString() + " questions · " +
+                                s.messages.toString() + " messages · " +
                                 formatDate(s.modified),
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1092,7 +1187,7 @@ private fun SessionsSheet() {
                     IconButton(onClick = { toDelete = s }) {
                         Icon(
                             Icons.Default.Delete,
-                            contentDescription = "Apagar sessao",
+                            contentDescription = "Delete session",
                             modifier = Modifier.size(18.dp)
                         )
                     }
@@ -1105,21 +1200,21 @@ private fun SessionsSheet() {
     toDelete?.let { target ->
         AlertDialog(
             onDismissRequest = { toDelete = null },
-            title = { Text("Apagar sessao?") },
+            title = { Text("Delete session?") },
             text = {
                 Text(
-                    "\"" + target.title.ifEmpty { "(sem titulo)" } + "\"\n" +
-                        "O arquivo da sessao sera apagado do disco. Nao da para desfazer."
+                    "\"" + target.title.ifEmpty { "(untitled)" } + "\"\n" +
+                        "The session file will be deleted from disk. This cannot be undone."
                 )
             },
             confirmButton = {
                 TextButton(onClick = {
                     PiSession.deleteSession(target)
                     toDelete = null
-                }) { Text("Apagar") }
+                }) { Text("Delete") }
             },
             dismissButton = {
-                TextButton(onClick = { toDelete = null }) { Text("Cancelar") }
+                TextButton(onClick = { toDelete = null }) { Text("Cancel") }
             }
         )
     }
@@ -1158,7 +1253,7 @@ private fun TextInputDialog(dialog: PiTextDialog) {
             }) { Text("OK") }
         },
         dismissButton = {
-            TextButton(onClick = { PiSession.textDialog = null }) { Text("Cancelar") }
+            TextButton(onClick = { PiSession.textDialog = null }) { Text("Cancel") }
         }
     )
 }
@@ -1170,7 +1265,7 @@ private fun ExtensionDialog(dialog: PiExtDialog) {
     when (dialog.method) {
         "select" -> AlertDialog(
             onDismissRequest = { PiSession.cancelExtension(dialog.id) },
-            title = { Text(dialog.title.ifEmpty { "Escolha uma opcao" }) },
+            title = { Text(dialog.title.ifEmpty { "Choose an option" }) },
             text = {
                 Column {
                     dialog.options.forEach { option ->
@@ -1190,19 +1285,19 @@ private fun ExtensionDialog(dialog: PiExtDialog) {
             text = { Text(dialog.message) },
             confirmButton = {
                 TextButton(onClick = { PiSession.respondExtensionConfirmed(dialog.id, true) }) {
-                    Text("Sim")
+                    Text("Yes")
                 }
             },
             dismissButton = {
                 TextButton(onClick = { PiSession.respondExtensionConfirmed(dialog.id, false) }) {
-                    Text("Nao")
+                    Text("No")
                 }
             }
         )
 
         else -> AlertDialog(
             onDismissRequest = { PiSession.cancelExtension(dialog.id) },
-            title = { Text(dialog.title.ifEmpty { "Entrada" }) },
+            title = { Text(dialog.title.ifEmpty { "Input" }) },
             text = {
                 Column {
                     if (dialog.message.isNotEmpty()) {
@@ -1224,13 +1319,13 @@ private fun ExtensionDialog(dialog: PiExtDialog) {
                 }
             },
             dismissButton = {
-                TextButton(onClick = { PiSession.cancelExtension(dialog.id) }) { Text("Cancelar") }
+                TextButton(onClick = { PiSession.cancelExtension(dialog.id) }) { Text("Cancel") }
             }
         )
     }
 }
 
-// -------------------------------------------------------------- mensagens
+// ------------------------------------------------------------------- messages
 
 @Composable
 private fun EmptyState() {
@@ -1244,9 +1339,9 @@ private fun EmptyState() {
         Text("Nebula Pi", fontSize = 20.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
         Text(
-            if (PiSession.connected) "Conectado. Manda o que voce precisa."
-            else if (PiSession.status.startsWith("subindo") || PiSession.status == "conectando...") PiSession.status + "\nAguarde, estou subindo o daemon sozinho."
-            else "Sem conexao com o daemon do Pi.\nEstou tentando subir sozinho — se falhar, rode 'pi-rpc' no Termux e toque em reconectar.",
+            if (PiSession.connected) "Connected. Tell me what you need."
+            else if (PiSession.status.startsWith("starting") || PiSession.status == "connecting...") PiSession.status + "\nHold on, I am starting the daemon on my own."
+            else "No connection to the Pi daemon.\nI am trying to start it on my own — if it fails, run 'pi-rpc' in Termux and tap reconnect.",
             fontSize = 13.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -1270,14 +1365,14 @@ private fun PiItemView(index: Int, item: PiItem, onOpenImage: (String) -> Unit) 
     }
 }
 
-/** Miniatura de imagem anexada (base64 puro). Toque abre em tela cheia. */
+/** Attached image thumbnail (raw base64). Tap opens it full screen. */
 @Composable
 private fun PiImageThumb(base64: String, onOpen: ((String) -> Unit)? = null) {
     val bitmap = remember(base64) { decodeImage(base64) }
     if (bitmap != null) {
         Image(
             bitmap = bitmap.asImageBitmap(),
-            contentDescription = "imagem (toque pra ampliar)",
+            contentDescription = "image (tap to zoom)",
             modifier = Modifier
                 .widthIn(max = 260.dp)
                 .clip(RoundedCornerShape(10.dp))
@@ -1300,7 +1395,7 @@ private fun decodeImage(base64: String): Bitmap? {
         opts.inSampleSize = sample
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
     } catch (e: Exception) {
-        Log.w("NebulaPi", "nao consegui decodificar a imagem", e)
+        Log.w("NebulaPi", "could not decode the image", e)
         null
     }
 }
@@ -1381,7 +1476,7 @@ private fun AssistantBubble(
     }
 }
 
-/** Botaozinho de copiar (vira check por 1s). */
+/** Small copy button (turns into a check for 1s). */
 @Composable
 private fun CopyButton(text: String, key: String) {
     val clipboard = LocalClipboardManager.current
@@ -1400,7 +1495,7 @@ private fun CopyButton(text: String, key: String) {
     ) {
         Icon(
             Icons.Default.ContentCopy,
-            contentDescription = if (copied) "Copiado" else "Copiar",
+            contentDescription = if (copied) "Copied" else "Copy",
             modifier = Modifier.size(14.dp),
             tint = if (copied) MaterialTheme.colorScheme.primary
             else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
@@ -1408,7 +1503,7 @@ private fun CopyButton(text: String, key: String) {
     }
 }
 
-/** Alto-falante: fala a resposta (TTS), toque de novo para. */
+/** Speaker: speaks the response (TTS), tap again to stop. */
 @Composable
 private fun SpeakButton(key: String, text: String) {
     val context = LocalContext.current
@@ -1419,7 +1514,7 @@ private fun SpeakButton(key: String, text: String) {
     ) {
         Icon(
             if (active) Icons.Default.Stop else Icons.Default.VolumeUp,
-            contentDescription = if (active) "Parar de falar" else "Ouvir resposta",
+            contentDescription = if (active) "Stop speaking" else "Read response aloud",
             modifier = Modifier.size(14.dp),
             tint = if (active) MaterialTheme.colorScheme.error
             else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
@@ -1437,7 +1532,7 @@ private fun ThinkingBlock(index: Int, text: String) {
             .padding(horizontal = 4.dp, vertical = 2.dp)
     ) {
         Text(
-            if (expanded) "▾ raciocinio" else "▸ raciocinio",
+            if (expanded) "▾ reasoning" else "▸ reasoning",
             fontSize = 11.sp,
             fontFamily = FontFamily.Monospace,
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
@@ -1513,11 +1608,11 @@ private fun NoticeLine(text: String, error: Boolean) {
 
 // -------------------------------------------------------------- autocomplete / e @
 
-/** Sugestoes de slash command enquanto digita "/...". Toque executa. */
+/** Slash command suggestions while typing "/...". Tap runs it. */
 @Composable
 private fun SlashSuggestions(input: String, onPick: (PiCommand) -> Unit) {
-    // trim nas duas pontas: espaco apos a "/" (que o teclado mete sozinho)
-    // nao pode esconder a caixa; so esconde quando ja tem argumento de verdade.
+    // trim on both ends: the space after the "/" (that the keyboard adds by itself)
+    // must not hide the box; it only hides once there is a real argument.
     val q = input.trim()
     if (!q.startsWith("/") || q.contains(" ") || q.contains("\n")) return
     if (PiSession.commands.isEmpty()) {
@@ -1530,7 +1625,7 @@ private fun SlashSuggestions(input: String, onPick: (PiCommand) -> Unit) {
                 .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
         ) {
             Text(
-                "Carregando comandos... toque pra recarregar",
+                "Loading commands... tap to reload",
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier
@@ -1575,7 +1670,7 @@ private fun SlashSuggestions(input: String, onPick: (PiCommand) -> Unit) {
     }
 }
 
-/** Acha "@busca" no fim do texto (o @ precisa vir apos espaco/inicio). */
+/** Finds "@search" at the end of the text (the @ must come after a space/start). */
 private fun extractMentionQuery(input: String): Pair<String, IntRange>? {
     val at = input.lastIndexOf('@')
     if (at < 0) return null
@@ -1586,14 +1681,14 @@ private fun extractMentionQuery(input: String): Pair<String, IntRange>? {
     val query = input.substring(at + 1)
     if (query.contains(' ') || query.contains('\n')) return null
     if (query.contains('/')) {
-        // caminho parcial: so o nome do arquivo filtra
+        // partial path: only the file name filters
         val name = query.substringAfterLast('/')
         if (name.contains(' ')) return null
     }
     return query to (at..input.length)
 }
 
-/** Sugestoes de arquivo pro @ (Download + anexos). Toque insere o caminho. */
+/** File suggestions for @ (Download + attachments). Tap inserts the path. */
 @Composable
 private fun MentionSuggestions(input: String, onPick: (path: String, start: Int, end: Int) -> Unit) {
     val mention = remember(input) { extractMentionQuery(input) } ?: return
@@ -1632,9 +1727,9 @@ private fun MentionSuggestions(input: String, onPick: (path: String, start: Int,
     }
 }
 
-// -------------------------------------------------------------- imagem em tela cheia
+// ------------------------------------------------------------ full screen image
 
-/** Dialog fullscreen com pinch-to-zoom pra ver a imagem direito. */
+/** Fullscreen dialog with pinch-to-zoom to look at the image properly. */
 @Composable
 private fun ImageViewerDialog(base64: String, onClose: () -> Unit) {
     val bitmap = remember(base64) { decodeImage(base64) }
@@ -1660,7 +1755,7 @@ private fun ImageViewerDialog(base64: String, onClose: () -> Unit) {
                 }
                 Image(
                     bitmap = bitmap.asImageBitmap(),
-                    contentDescription = "imagem ampliada",
+                    contentDescription = "zoomed image",
                     modifier = Modifier
                         .fillMaxSize()
                         .transformable(state)

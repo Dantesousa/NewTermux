@@ -2,31 +2,31 @@
 /**
  * Nebula Pi RPC daemon
  *
- * Expoe o Pi (modo RPC, protocolo JSONL) atraves de um socket TCP local.
- * O app Android (Nebula) conecta nesse socket e fala o mesmo protocolo
+ * Exposes Pi (RPC mode, JSONL protocol) over a local TCP socket.
+ * The Android app (Nebula) connects to that socket and speaks the same protocol
  * documentado em pi docs/rpc.md.
  *
- * Por que TCP e nao unix domain socket: o fork do Termux tem minSdkVersion=21
- * e java.net.UnixDomainSocketAddress so existe a partir da API 26.
+ * Why TCP and not a unix domain socket: the Termux fork has minSdkVersion=21
+ * and java.net.UnixDomainSocketAddress only exists from API 26 on.
  *
- * Por que daemon e nao Pi dentro do APK: empacotar Node no Android nao rola
- * (nodejs-mobile e Node 12, o Pi exige 18+). Rodando aqui o Pi usa o ambiente
- * Termux de verdade: mesmo bash, mesmas ferramentas, mesmos arquivos.
+ * Why a daemon and not Pi inside the APK: bundling Node on Android does not work
+ * (nodejs-mobile is Node 12, Pi needs 18+). Running here, Pi uses the real
+ * Termux environment: same bash, same tools, same files.
  *
  * Env:
- *   NEBULA_PI_BIN      caminho do executavel do Pi (override absoluto;
+ *   NEBULA_PI_BIN      path to the Pi executable (absolute override;
  *                        default ~/.pi/agent/bin/pi)
- *   NEBULA_PI_ENGINE   "pi" ou "pi-bolt" (vale se NEBULA_PI_BIN nao setado)
- *   NEBULA_PI_CWD      working directory do Pi (default $HOME)
- *   NEBULA_PI_ARGS     argumentos extras (default: --mode rpc)
- *   NEBULA_PI_PORT     porta fixa (default: 37877)
- *   NEBULA_PI_RUNTIME_DIR  dir do port file/pid/log (default ~/.cache/nebula-pi)
- *   NEBULA_PI_AUTORESTART=1  reinicia o Pi se ele morrer (default 1)
+ *   NEBULA_PI_ENGINE   "pi" or "pi-bolt" (used when NEBULA_PI_BIN is not set)
+ *   NEBULA_PI_CWD      Pi working directory (default $HOME)
+ *   NEBULA_PI_ARGS     extra arguments (default: --mode rpc)
+ *   NEBULA_PI_PORT     fixed port (default: 37877)
+ *   NEBULA_PI_RUNTIME_DIR  dir for port file/pid/log (default ~/.cache/nebula-pi)
+ *   NEBULA_PI_AUTORESTART=1  restarts Pi if it dies (default 1)
  *
- * A porta e FIXA de proposito: o app Android pode ser o flavor demo
- * (com.termux.demo), que roda com outro UID e nao enxerga o port file do
- * Termux real. TCP em localhost funciona entre UIDs diferentes, entao a
- * porta fixa deixa o app achar o daemon sem compartilhar nenhum arquivo.
+ * The port is FIXED on purpose: the Android app may be the demo flavor
+ * (com.termux.demo), which runs under another UID and cannot see the port file of
+ * the real Termux. TCP on localhost works across different UIDs, so the
+ * fixed port lets the app find the daemon without sharing any file.
  */
 
 import net from 'node:net';
@@ -45,18 +45,18 @@ const TERMUX_PREFIX = process.env.TERMUX_PREFIX || '/data/data/com.termux/files/
 
 const PI_CWD = process.env.NEBULA_PI_CWD || HOME;
 
-// ---- engine: Pi (Node) ou Pi-Bolt (nativo) ----
+// ---- engine: Pi (Node) or Pi-Bolt (native) ----
 //
-// Ordem de resolucao (boot): NEBULA_PI_BIN absoluto > NEBULA_PI_ENGINE
-// ("pi"|"pi-bolt") > arquivo runtime/engine > padrao (pi).
-// O arquivo runtime/engine e escrito pelo comando nebula_set_engine, entao a
-// escolha sobrevive a reinicios do daemon. NEBULA_PI_BIN continua valendo
-// como override absoluto (compatibilidade com o comportamento anterior).
+// Resolution order (boot): absolute NEBULA_PI_BIN > NEBULA_PI_ENGINE
+// ("pi"|"pi-bolt") > runtime/engine file > default (pi).
+// The runtime/engine file is written by the nebula_set_engine command, so the
+// choice survives daemon restarts. NEBULA_PI_BIN still works
+// as an absolute override (compatible with the previous behavior).
 //
-// As duas engines leem e escrevem o MESMO ~/.pi/agent (config, auth,
-// sessoes, memorias): trocar de engine nunca apaga dado, so comeca uma
-// sessao nova no processo novo. A sessao anterior continua listada em
-// nebula_sessions e pode ser reaberta em qualquer engine.
+// Both engines read and write the SAME ~/.pi/agent (config, auth,
+// sessions, memories): switching engines never deletes data, it just starts a
+// new session in the new process. The previous session stays listed in
+// nebula_sessions and can be reopened in any engine.
 const ENGINE_FILE = path.join(RUNTIME_DIR, 'engine');
 const ENGINES = {
   pi: {
@@ -66,7 +66,7 @@ const ENGINES = {
   },
   'pi-bolt': {
     id: 'pi-bolt',
-    name: 'Pi-Bolt (nativo)',
+    name: 'Pi-Bolt (native)',
     bin: path.join(TERMUX_PREFIX, 'bin', 'pi-bolt'),
   },
 };
@@ -83,17 +83,17 @@ function resolveEngineId() {
 
 let engineId = resolveEngineId();
 let PI_BIN = ENGINES[engineId].bin;
-// Override absoluto (comportamento anterior): usa o binario indicado.
-// A troca em runtime (nebula_set_engine) limpa esse override no processo.
+// Absolute override (previous behavior): uses the given binary.
+// The runtime switch (nebula_set_engine) clears that override in the process.
 if (process.env.NEBULA_PI_BIN) PI_BIN = process.env.NEBULA_PI_BIN;
 const PI_ARGS = (process.env.NEBULA_PI_ARGS || '--mode rpc').split(/\s+/).filter(Boolean);
 const SESSION_DIR = process.env.NEBULA_PI_SESSION_DIR || path.join(HOME, '.pi', 'agent', 'sessions');
 const WANT_PORT = Number(process.env.NEBULA_PI_PORT || 37877);
 const AUTORESTART = process.env.NEBULA_PI_AUTORESTART !== '0';
-// Mesmo motivo do start script: sem o preload do Termux os filhos nao
-// conseguem executar shebangs (/usr/bin/env, /bin/sh) e o pi morre com
-// exit 126 em loop. Garante aqui tambem caso o daemon tenha sido herdado
-// sem env (o start script ja exporta, isto e segunda barreira).
+// Same reason as the start script: without the Termux preload the children
+// cannot exec shebangs (/usr/bin/env, /bin/sh) and pi dies with
+// exit 126 in a loop. Kept here too in case the daemon was inherited
+// without env (the start script already exports it, this is a second barrier).
 const TERMUX_PRELOAD = path.join(TERMUX_PREFIX, 'lib', 'libtermux-exec-ld-preload.so');
 const CHILD_LD_PRELOAD = process.env.LD_PRELOAD
   || (fs.existsSync(TERMUX_PRELOAD) ? TERMUX_PRELOAD : undefined);
@@ -117,7 +117,7 @@ const CHILD_ENV = {
   LANG: process.env.LANG || 'en_US.UTF-8',
   PATH: [
     // bin do pkg (nodejs do Termux) vem primeiro: o node do pi-node e build
-    // glibc linux-arm64 e nao executa no bionic do Android.
+    // glibc linux-arm64 build does not run on Android bionic.
     path.join(TERMUX_PREFIX, 'bin'),
     path.join(HOME, '.pi', 'agent', 'bin'),
     path.join(HOME, 'bin'),
@@ -144,7 +144,7 @@ function startPi() {
   });
 
   pi.stdout.on('data', (chunk) => {
-    // bytes crus: o cliente faz o split por LF (protocolo e JSONL)
+    // raw bytes: the client splits by LF (the protocol is JSONL)
     for (const socket of clients) {
       if (!socket.destroyed) socket.write(chunk);
     }
@@ -155,18 +155,18 @@ function startPi() {
   });
 
   pi.on('error', (err) => {
-    log('pi erro de spawn:', err.message);
+    log('pi spawn error:', err.message);
   });
 
   pi.on('exit', (code, signal) => {
-    log('pi saiu code=' + code + ' signal=' + signal);
+    log('pi exited code=' + code + ' signal=' + signal);
     pi = null;
     if (restarting) return;
-    // Troca de engine: o pi atual foi morto de proposito, sobe o novo
-    // com o binario novo (o socket TCP com o app continua de pe).
+    // Engine switch: the current pi was killed on purpose, start the new one
+    // with the new binary (the TCP socket with the app stays up).
     if (switchingEngine) {
       switchingEngine = false;
-      log('reiniciando pi com a nova engine [' + engineId + ']...');
+      log('restarting pi with the new engine [' + engineId + ']...');
       startPi();
       return;
     }
@@ -177,17 +177,17 @@ function startPi() {
     restarting = true;
     setTimeout(() => {
       restarting = false;
-      log('reiniciando pi...');
+      log('restarting pi...');
       startPi();
     }, 2000);
   });
 }
 
-// ------------------------------------------------- comandos proprios (sessoes)
+// ------------------------------------------------ daemon-owned commands (sessions)
 
 /**
- * O Pi nao expoe listar/apagar sessoes no RPC, entao o daemon responde esses
- * comandos antes de encaminhar para o pi. Resposta no mesmo formato do RPC.
+ * Pi does not expose list/delete sessions over RPC, so the daemon answers those
+ * commands before forwarding to pi. Response in the same RPC format.
  */
 function handleNebulaCommand(socket, line) {
   let rec;
@@ -206,7 +206,7 @@ function handleNebulaCommand(socket, line) {
     try {
       socket.write(JSON.stringify(out) + '\n');
     } catch (e) {
-      log('erro ao responder', type, e.message);
+      log('error while responding', type, e.message);
     }
   };
 
@@ -261,7 +261,7 @@ function handleNebulaCommand(socket, line) {
         return true;
     }
   } catch (e) {
-    log('erro no comando', type, e.message);
+    log('command error', type, e.message);
     respond(false, null, e.message);
     return true;
   }
@@ -269,7 +269,7 @@ function handleNebulaCommand(socket, line) {
 
 // ------------------------------------------------- engine (pi x pi-bolt)
 
-/** Engine efetiva: 'custom' quando NEBULA_PI_BIN aponta pra fora da lista. */
+/** Effective engine: 'custom' when NEBULA_PI_BIN points outside the list. */
 function currentEngine() {
   if (process.env.NEBULA_PI_BIN && process.env.NEBULA_PI_BIN !== ENGINES[engineId].bin) {
     return 'custom';
@@ -289,21 +289,21 @@ function engineStatus() {
 }
 
 /**
- * Troca a engine em runtime: persiste a escolha, mata o pi atual e o
- * exit handler sobe o novo com o binario novo. O socket TCP continua de
- * pe, entao o app nao precisa reconectar — mas a sessao ativa zera
- * (o processo novo comeca vazio; o arquivo da sessao anterior continua
- * no disco e pode ser reaberto via switch_session).
+ * Switches the engine at runtime: persists the choice, kills the current pi and
+ * the exit handler starts the new one with the new binary. The TCP socket stays
+ * up, so the app does not need to reconnect — but the active session resets
+ * (the new process starts empty; the previous session file remains
+ * on disk and can be reopened via switch_session).
  */
 function setEngine(id) {
   if (id !== 'pi' && id !== 'pi-bolt') {
-    return { ok: false, error: 'engine desconhecida: ' + id };
+    return { ok: false, error: 'unknown engine: ' + id };
   }
   const bin = ENGINES[id].bin;
   try {
     fs.accessSync(bin, fs.constants.X_OK);
   } catch {
-    return { ok: false, error: 'binario nao encontrado ou nao executavel: ' + bin };
+    return { ok: false, error: 'binary not found or not executable: ' + bin };
   }
   engineId = id;
   PI_BIN = bin;
@@ -311,15 +311,15 @@ function setEngine(id) {
   try {
     fs.writeFileSync(ENGINE_FILE, id + '\n');
   } catch (e) {
-    log('nao consegui persistir engine:', e.message);
+    log('could not persist engine:', e.message);
   }
   if (pi && !pi.killed) {
     switchingEngine = true;
-    log('trocando engine para', id, '- matando pi atual');
+    log('switching engine to', id, '- killing current pi');
     try {
       pi.kill('SIGTERM');
     } catch (e) {
-      log('falha ao matar pi:', e.message);
+      log('failed to kill pi:', e.message);
       switchingEngine = false;
       startPi();
     }
@@ -401,7 +401,7 @@ function listSessions() {
           timestamp,
         });
       } catch (e) {
-        log('erro ao ler sessao', file, e.message);
+        log('error reading session', file, e.message);
       }
     }
   }
@@ -409,21 +409,21 @@ function listSessions() {
   return out;
 }
 
-/** Apaga um arquivo de sessao, so dentro do diretorio de sessoes. */
+/** Deletes a session file, only inside the sessions directory. */
 function deleteSession(file) {
   if (!file) return false;
   const resolved = path.resolve(file);
   const root = path.resolve(SESSION_DIR);
   if (!resolved.startsWith(root + path.sep)) {
-    log('recusando apagar fora do dir de sessoes:', resolved);
+    log('refusing to delete outside the sessions dir:', resolved);
     return false;
   }
   try {
     fs.unlinkSync(resolved);
-    log('sessao apagada:', resolved);
+    log('session deleted:', resolved);
     return true;
   } catch (e) {
-    log('erro ao apagar sessao:', resolved, e.message);
+    log('error deleting session:', resolved, e.message);
     return false;
   }
 }
@@ -436,7 +436,7 @@ function renameSession(file, name) {
   const safe = String(name).replace(/[^A-Za-z0-9 ._-]/g, '_').slice(0, 60).trim();
   if (!safe) return false;
   try {
-    // renomeia o arquivo e o id interno da sessao (primeira linha)
+    // renames the file and the session internal id (first line)
     const lines = fs.readFileSync(resolved, 'utf8').split('\n');
     if (lines.length && lines[0].includes('"type":"session"')) {
       const head = JSON.parse(lines[0]);
@@ -448,24 +448,24 @@ function renameSession(file, name) {
     const base = path.basename(resolved, '.jsonl');
     const target = path.join(dir, base + '-' + safe.replace(/\s+/g, '_') + '.jsonl');
     fs.renameSync(resolved, target);
-    log('sessao renomeada:', target);
+    log('session renamed:', target);
     return true;
   } catch (e) {
-    log('erro ao renomear sessao:', e.message);
+    log('error renaming session:', e.message);
     return false;
   }
 }
 
-// ------------------------------------------------------------------ memória
+// -------------------------------------------------------------------- memory
 
 /**
- * Memórias do Hermes (extensão pi-hermes-memory).
+ * Hermes memories (pi-hermes-memory extension).
  *
- * O app Android (mesmo no flavor demo, que roda com outro UID) não consegue
- * ler ~/.pi/agent/pi-hermes-memory direto, então o daemon lê e devolve.
+ * The Android app (even the demo flavor, which runs under another UID) cannot
+ * read ~/.pi/agent/pi-hermes-memory directly, so the daemon reads it and returns it.
  *
- * Formato dos arquivos: entradas separadas por uma linha só com "§", e cada
- * entrada termina com um comentário <!-- created=..., last=... -->.
+ * File format: entries separated by a line containing only "§", and each
+ * entry ends with a comment <!-- created=..., last=... -->.
  */
 const MEMORY_DIR = process.env.NEBULA_PI_MEMORY_DIR || path.join(HOME, '.pi', 'agent', 'pi-hermes-memory');
 const MEMORY_FILES = ['MEMORY.md', 'USER.md', 'failures.md'];
@@ -504,7 +504,7 @@ function listMemories() {
   return out;
 }
 
-/** Acrescenta uma memória nova no arquivo indicado. */
+/** Appends a new memory to the given file. */
 function saveMemory(text, file) {
   if (!text) return false;
   const name = MEMORY_FILES.includes(file) ? file : 'MEMORY.md';
@@ -516,17 +516,17 @@ function saveMemory(text, file) {
     const current = fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : '';
     const next = current && !current.endsWith('\n') ? current + '\n' + entry : current + entry;
     fs.writeFileSync(target, next);
-    log('memoria salva em', name);
+    log('memory saved to', name);
     return true;
   } catch (e) {
-    log('erro ao salvar memoria:', e.message);
+    log('error saving memory:', e.message);
     return false;
   }
 }
 
-// ------------------------------------------------- provedores (auth)
-// Catalogo espelhado do Pi 1.3.0 (pi-ai/dist/env-api-keys.js + providers/).
-// featured=true vai pro topo no app (OpenCode em destaque, pedido do Dante).
+// ---------------------------------------------------------- providers (auth)
+// Catalog mirrored from Pi 1.3.0 (pi-ai/dist/env-api-keys.js + providers/).
+// featured=true goes to the top in the app (OpenCode highlighted, requested by Dante).
 const AUTH_FILE = path.join(HOME, '.pi', 'agent', 'auth.json');
 const PROVIDERS = [
   { id: 'opencode-go', name: 'OpenCode Go', env: 'OPENCODE_API_KEY', featured: true },
@@ -588,15 +588,15 @@ function providerStatus() {
 }
 
 function saveProviderKey(provider, key) {
-  if (!PROVIDERS.some((p) => p.id === provider)) return { ok: false, error: 'provedor desconhecido: ' + provider };
+  if (!PROVIDERS.some((p) => p.id === provider)) return { ok: false, error: 'unknown provider: ' + provider };
   const k = String(key || '').trim();
-  if (k.length < 4) return { ok: false, error: 'chave muito curta' };
+  if (k.length < 4) return { ok: false, error: 'key too short' };
   try {
     const auth = readAuth();
     auth[provider] = { type: 'api_key', key: k };
     fs.mkdirSync(path.dirname(AUTH_FILE), { recursive: true });
     fs.writeFileSync(AUTH_FILE, JSON.stringify(auth, null, 2) + '\n', { mode: 0o600 });
-    log('provedor configurado:', provider);
+    log('provider configured:', provider);
     return { ok: true };
   } catch (e) { return { ok: false, error: e.message }; }
 }
@@ -604,15 +604,15 @@ function saveProviderKey(provider, key) {
 function deleteProvider(provider) {
   try {
     const auth = readAuth();
-    if (auth[provider]) { delete auth[provider]; fs.writeFileSync(AUTH_FILE, JSON.stringify(auth, null, 2) + '\n', { mode: 0o600 }); log('provedor removido:', provider); return true; }
+    if (auth[provider]) { delete auth[provider]; fs.writeFileSync(AUTH_FILE, JSON.stringify(auth, null, 2) + '\n', { mode: 0o600 }); log('provider removed:', provider); return true; }
     return false;
-  } catch (e) { log('erro ao remover provedor:', e.message); return false; }
+  } catch (e) { log('error removing provider:', e.message); return false; }
 }
 
-// ------------------------------------------------------------------ servidor
+// -------------------------------------------------------------------- server
 
 const server = net.createServer((socket) => {
-  log('cliente conectado de', socket.remoteAddress + ':' + socket.remotePort);
+  log('client connected from', socket.remoteAddress + ':' + socket.remotePort);
   socket.setNoDelay(true);
   clients.add(socket);
 
@@ -623,45 +623,45 @@ const server = net.createServer((socket) => {
       const line = socket._nebulaBuf.slice(0, idx).replace(/\r$/, '');
       socket._nebulaBuf = socket._nebulaBuf.slice(idx + 1);
       if (!line.trim()) continue;
-      // Comandos proprios do daemon (sessoes) sao respondidos aqui.
+      // Daemon-owned commands (sessions) are answered here.
       if (handleNebulaCommand(socket, line)) continue;
       if (!pi || !pi.stdin.writable) {
-        log('comando recebido sem pi rodando, descartando');
+        log('command received with no pi running, dropping it');
         continue;
       }
-      // log curto do que chegou, pra conferir que o app mandou o prompt
-      log('<- cliente:', line.slice(0, 160).replace(/\n/g, ' '));
+      // short log of what arrived, to check that the app sent the prompt
+      log('<- client:', line.slice(0, 160).replace(/\n/g, ' '));
       pi.stdin.write(line + '\n');
     }
   });
 
   const bye = () => {
     clients.delete(socket);
-    log('cliente desconectado, restam', clients.size);
+    log('client disconnected, remaining', clients.size);
   };
   socket.on('close', bye);
   socket.on('end', bye);
   socket.on('error', (err) => {
-    log('socket erro:', err.message);
+    log('socket error:', err.message);
     bye();
   });
 });
 
 server.on('error', async (err) => {
   if (err.code === 'EADDRINUSE') {
-    // Ja existe um daemon nosso rodando? Se sim, nao e erro.
+    // Is one of our daemons already running? If so, it is not an error.
     if (await probeExisting()) {
-      log('ja existe um daemon rodando na porta ' + WANT_PORT + ', encerrando');
-      // NAO remove o port/pid file: sao do daemon que continua rodando.
+      log('a daemon is already running on port ' + WANT_PORT + ', exiting');
+      // Do NOT remove the port/pid file: they belong to the daemon that keeps running.
       process.exit(0);
     }
-    log('porta ' + WANT_PORT + ' ocupada por outro processo, Giving up');
+    log('port ' + WANT_PORT + ' taken by another process, giving up');
   }
-  log('server erro:', err.message);
+  log('server error:', err.message);
   shutdown(1);
 });
 
-/** Tenta falar com o protocolo na porta: se responder, ja ha um daemon nosso. */
+/** Tries the protocol on the port: if it answers, one of our daemons is already there. */
 async function probeExisting() {
   return new Promise((resolve) => {
     const sock = net.createConnection({ host: HOST, port: WANT_PORT });
@@ -691,7 +691,7 @@ async function probeExisting() {
 }
 
 function shutdown(code) {
-  log('encerrando daemon');
+  log('shutting down daemon');
   try {
     if (pi && !pi.killed) pi.kill('SIGTERM');
   } catch {}
@@ -715,6 +715,6 @@ server.listen(WANT_PORT, HOST, () => {
   const port = server.address().port;
   fs.writeFileSync(PORT_FILE, String(port));
   fs.writeFileSync(PID_FILE, String(process.pid));
-  log('daemon ouvindo em ' + HOST + ':' + port + ' (port file: ' + PORT_FILE + ')');
+  log('daemon listening on ' + HOST + ':' + port + ' (port file: ' + PORT_FILE + ')');
   startPi();
 });

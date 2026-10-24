@@ -9,17 +9,17 @@ import com.termux.shared.termux.TermuxConstants
 import java.io.File
 
 /**
- * Sobe o daemon pi-rpc sem precisar digitar no terminal.
+ * Starts the pi-rpc daemon without typing in the terminal.
  *
- * O Node nao roda dentro do APK (build glibc vs Bionic, Pi exige Node 18+),
- * entao o daemon roda no Termux de verdade e o app so dispara ele via
- * TermuxService (Runner app-shell, background) e reconecta no TCP 127.0.0.1.
+ * Node does not run inside the APK (glibc vs Bionic build, Pi needs Node 18+),
+ * so the daemon runs in the real Termux and the app just launches it through
+ * TermuxService (Runner app-shell, background) and reconnects on TCP 127.0.0.1.
  */
 object PiDaemon {
     private const val TAG = "NebulaPi"
     const val PORT = PiRpcClient.DEFAULT_PORT
 
-    /** Candidatos do script de subida, na ordem de preferencia. */
+    /** Candidates for the start script, in order of preference. */
     private fun candidates(home: String): List<String> = listOf(
         "$home/work/NewTermux/pi-daemon/pi-rpc-start.sh",
         "$home/work/nebula-pi/daemon/pi-rpc-start.sh",
@@ -30,14 +30,14 @@ object PiDaemon {
     fun scriptPath(): String? {
         val home = try {
             android.os.Environment.getExternalStorageDirectory()?.let {
-                // HOME real do Termux, nao o storage compartilhado.
+                // Real Termux HOME, not shared storage.
                 null
             }
             "/data/data/com.termux/files/home"
         } catch (_: Exception) {
             "/data/data/com.termux/files/home"
         }
-        // Tenta o HOME real via getenv primeiro (funciona no app principal).
+        // Tries the real HOME via getenv first (works in the main app).
         val envHome = try { System.getenv("HOME") } catch (_: Exception) { null }
         val homes = listOfNotNull(envHome, home).distinct()
         for (h in homes) {
@@ -52,20 +52,20 @@ object PiDaemon {
 
     /**
      * Dispara o start script via TermuxService (mesmo pacote).
-     * Retorna true se o intent foi enviado. O daemon leva ~1-3s pra subir.
-     * No flavor demo (outro UID, sem env real) retorna false: ai tem que
-     * rodar `pi-rpc` no Termux de verdade uma vez.
+     * Returns true if the intent was sent. The daemon takes ~1-3s to come up.
+     * In the demo flavor (different UID, no real env) it returns false: then
+     * `pi-rpc` has to be run in the real Termux once.
      */
     fun ensureRunning(context: Context): Boolean {
         val appCtx = context.applicationContext
-        // Demo nao tem TermuxService com env real (terminal fake).
+        // Demo has no TermuxService with real env (fake terminal).
         if (appCtx.packageName.endsWith(".demo")) {
-            Log.i(TAG, "flavor demo: nao auto-subo daemon, use pi-rpc no Termux real")
+            Log.i(TAG, "demo flavor: not auto-starting the daemon, use pi-rpc in real Termux")
             return false
         }
         val script = scriptPath()
         if (script == null) {
-            Log.w(TAG, "script pi-rpc-start.sh nao encontrado")
+            Log.w(TAG, "pi-rpc-start.sh script not found")
             return false
         }
         return try {
@@ -91,7 +91,7 @@ object PiDaemon {
                 TermuxConstants.TERMUX_APP.TERMUX_SERVICE.EXTRA_COMMAND_DESCRIPTION,
                 "Sobe o pi-rpc-daemon (TCP 127.0.0.1:$PORT)"
             )
-            // ShellCreateMode ALWAYS: se ja rodando, o script detecta e sai.
+            // ShellCreateMode ALWAYS: if already running, the script detects it and exits.
             intent.putExtra(
                 TermuxConstants.TERMUX_APP.TERMUX_SERVICE.EXTRA_SHELL_CREATE_MODE,
                 "always"
@@ -105,10 +105,10 @@ object PiDaemon {
             } else {
                 appCtx.startService(intent)
             }
-            Log.i(TAG, "pedido de subida do daemon enviado: $script")
+            Log.i(TAG, "daemon start request sent: $script")
             true
         } catch (e: Exception) {
-            Log.w(TAG, "falha ao pedir subida do daemon", e)
+            Log.w(TAG, "failed to request daemon start", e)
             false
         }
     }

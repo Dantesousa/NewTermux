@@ -10,10 +10,10 @@ import androidx.compose.runtime.setValue
 import java.util.Locale
 
 /**
- * Voz no painel do Pi: fala a resposta em voz alta (TTS).
+ * Voice in the Pi panel: speaks the response out loud (TTS).
  *
- * O ditado (microfone -> texto) usa o [com.newtermux.features.SpeechInputManager]
- * direto na tela, porque precisa de permissao e ciclo de vida da Activity.
+ * Dictation (microphone -> text) uses [com.newtermux.features.SpeechInputManager]
+ * right on the screen, because it needs permission and the Activity lifecycle.
  */
 object PiTts {
 
@@ -29,8 +29,8 @@ object PiTts {
     private var pending: String? = null
 
     /**
-     * Fala o texto (limpo de markdown). Se ja estiver falando essa mesma
-     * mensagem, para (toggle). Se estiver falando outra, troca pra nova.
+     * Speaks the text (stripped of markdown). If the same message is already
+     * being spoken, stop (toggle). If another one is being spoken, switch to it.
      */
     fun speak(context: Context, key: String, text: String) {
         if (isSpeaking && speakingKey == key) {
@@ -66,7 +66,7 @@ object PiTts {
                                     speakingKey = null
                                 }
 
-                                @Deprecated("usado em APIs antigas")
+                                @Deprecated("used on older APIs")
                                 override fun onError(utteranceId: String?) {
                                     isSpeaking = false
                                     speakingKey = null
@@ -85,7 +85,7 @@ object PiTts {
                         pending = null
                     }
                 } catch (e: Exception) {
-                    Log.w(TAG, "nao consegui iniciar o TTS", e)
+                    Log.w(TAG, "could not start TTS", e)
                     pending = null
                     speakingKey = null
                 }
@@ -123,25 +123,25 @@ object PiTts {
             isSpeaking = true
             engine.speak(clean, TextToSpeech.QUEUE_FLUSH, null, "nebula-pi-tts")
         } catch (e: Exception) {
-            Log.w(TAG, "falha ao falar", e)
+            Log.w(TAG, "failed to speak", e)
             isSpeaking = false
             speakingKey = null
         }
     }
 
     /**
-     * Tira a sintaxe do markdown pra nao soletrar "**" e "```" em voz alta.
-     * Bloco de codigo vira "bloco de código", link vira o texto.
+     * Strips markdown syntax so it does not spell out "**" and "```" out loud.
+     * A code block becomes "code block", a link becomes the text.
      */
     fun stripMarkdownForSpeech(text: String): String {
         var s = text
-        s = s.replace(Regex("```[\\s\\S]*?```"), " bloco de código. ")
+        s = s.replace(Regex("```[\\s\\S]*?```"), " code block. ")
         s = s.replace(Regex("`([^`]*)`"), "$1")
         s = s.replace(Regex("\\[([^\\]]*)]\\([^\\)]*\\)"), "$1")
         s = s.replace(Regex("https?://\\S+"), " link. ")
         s = s.replace("<u>", "").replace("</u>", "").replace("<U>", "").replace("</U>", "")
         s = s.replace("**", "").replace("__", "").replace("~~", "").replace("++", "")
-        // italico solto e headings no comeco da linha
+        // stray italic and headings at the start of the line
         s = s.replace(Regex("(?m)^#{1,6}\\s*"), "")
         s = s.replace(Regex("(?m)^>\\s?"), "")
         s = s.replace(Regex("(?m)^\\s*[-*•+]\\s+"), "")

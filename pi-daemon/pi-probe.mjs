@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Verifica se existe um daemon RPC do Pi respondendo na porta.
- * uso: node pi-probe.mjs [porta]   -> exit 0 se responder, 1 se nao
+ * Checks whether a Pi RPC daemon is answering on the port.
+ * usage: node pi-probe.mjs [port]   -> exit 0 if it answers, 1 if not
  */
 import net from 'node:net';
 

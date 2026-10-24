@@ -10,9 +10,9 @@ import java.io.File
 import java.io.FileOutputStream
 
 /**
- * Anexos: imagem vai embutida em base64 no prompt (o Pi "enxerga" a imagem);
- * documento vai copiado para o armazenamento compartilhado e o Pi le o
- * arquivo pelo caminho (assim o tool `read` do Pi resolve).
+ * Attachments: the image is embedded as base64 in the prompt (Pi "sees" the image);
+ * the document is copied to shared storage and Pi reads the
+ * file by path (so Pi's `read` tool can resolve it).
  */
 object PiAttach {
 
@@ -47,16 +47,16 @@ object PiAttach {
                 }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "nao consegui ler o nome do arquivo", e)
+            Log.w(TAG, "could not read the file name", e)
         }
-        return uri.lastPathSegment?.substringAfterLast('/') ?: "arquivo"
+        return uri.lastPathSegment?.substringAfterLast('/') ?: "file"
     }
 
     fun readBytes(context: Context, uri: Uri): ByteArray? {
         return try {
             context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
         } catch (e: Exception) {
-            Log.e(TAG, "falha ao ler o anexo", e)
+            Log.e(TAG, "failed to read the attachment", e)
             null
         }
     }
@@ -64,15 +64,15 @@ object PiAttach {
     fun toBase64(bytes: ByteArray): String = Base64.encodeToString(bytes, Base64.NO_WRAP)
 
     /**
-     * Copia o arquivo para /storage/emulated/0/Download/nebula-pi-attach/.
-     * O Pi roda no ambiente Termux real e le esse caminho.
+     * Copies the file to /storage/emulated/0/Download/nebula-pi-attach/.
+     * Pi runs in the real Termux environment and reads that path.
      */
     fun copyToShared(context: Context, uri: Uri, name: String): String? {
         return try {
             val downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
             val dir = File(downloads, "nebula-pi-attach")
             if (!dir.exists() && !dir.mkdirs()) {
-                Log.e(TAG, "nao consegui criar ${dir.absolutePath}")
+                Log.e(TAG, "could not create ${dir.absolutePath}")
                 return null
             }
             val target = File(dir, sanitize(name))
@@ -81,17 +81,17 @@ object PiAttach {
                     input.copyTo(output)
                 }
             } ?: return null
-            Log.i(TAG, "anexo copiado para ${target.absolutePath}")
+            Log.i(TAG, "attachment copied to ${target.absolutePath}")
             target.absolutePath
         } catch (e: Exception) {
-            Log.e(TAG, "falha ao copiar o anexo", e)
+            Log.e(TAG, "failed to copy the attachment", e)
             null
         }
     }
 
     /**
-     * Arquivos para a mencao @ no input: procura no Download e na pasta de
-     * anexos, filtra pelo nome. Sem recursao (rapido o bastante pra UI thread).
+     * Files for the @ mention in the input: looks in Download and in the
+     * attachments folder, filters by name. No recursion (fast enough for the UI thread).
      */
     fun listMentionFiles(query: String, limit: Int = 8): List<File> {
         return try {
@@ -110,19 +110,19 @@ object PiAttach {
             }
             out.sortedBy { it.name.lowercase() }.take(limit)
         } catch (e: Exception) {
-            Log.w(TAG, "nao consegui listar arquivos pra mencao @", e)
+            Log.w(TAG, "could not list files for the @ mention", e)
             emptyList()
         }
     }
 
     private fun sanitize(name: String): String {
         val clean = name.replace(Regex("[^A-Za-z0-9._-]"), "_")
-        return if (clean.isBlank()) "arquivo" else clean.take(120)
+        return if (clean.isBlank()) "file" else clean.take(120)
     }
 
     /**
-     * Preview de um documento: primeiras linhas, pra mostrar no chip de anexo.
-     * Só tenta em arquivo de texto (binarios viram null).
+     * Preview of a document: first lines, to show in the attachment chip.
+     * Only tries text files (binaries become null).
      */
     fun previewOf(path: String?, maxChars: Int = 220): String? {
         if (path.isNullOrBlank()) return null
@@ -130,7 +130,7 @@ object PiAttach {
             val file = File(path)
             if (!file.exists() || file.length() > 4L * 1024 * 1024) return null
             val text = file.readText(Charsets.UTF_8)
-            // Heuristica: se tem muitos bytes de controle, nao e texto.
+            // Heuristic: too many control bytes means it is not text.
             val control = text.count { it.code < 9 || (it.code in 11..12) || (it.code in 14..31) }
             if (control > text.length / 20) return null
             val clean = text.lineSequence()
@@ -142,7 +142,7 @@ object PiAttach {
                 .trim()
             if (clean.isEmpty()) null else clean.take(maxChars)
         } catch (e: Exception) {
-            Log.w(TAG, "nao consegui gerar preview do documento", e)
+            Log.w(TAG, "could not generate the document preview", e)
             null
         }
     }

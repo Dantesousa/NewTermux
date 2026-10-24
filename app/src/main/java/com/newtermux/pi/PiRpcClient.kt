@@ -15,29 +15,29 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * Cliente do modo RPC do Pi (protocolo JSONL, ver pi docs/rpc.md).
+ * Pi RPC mode client (JSONL protocol, see pi docs/rpc.md).
  *
- * O Pi roda como processo separado no ambiente Termux; o daemon
- * (~/work/nebula-pi/daemon/pi-rpc-daemon.mjs) faz a ponte entre o socket TCP
- * local e o `pi --mode rpc`. Como a porta e fixa, o app funciona tanto no
- * build completo (com.termux) quanto no flavor demo (com.termux.demo, outro
- * UID) — TCP em localhost funciona entre UIDs diferentes.
+ * Pi runs as a separate process in the Termux environment; the daemon
+ * (~/work/nebula-pi/daemon/pi-rpc-daemon.mjs) bridges the local TCP socket
+ * and `pi --mode rpc`. Because the port is fixed, the app works both in the
+ * full build (com.termux) and in the demo flavor (com.termux.demo, another
+ * UID) — TCP on localhost works across different UIDs.
  *
- * Cuidados de implementacao:
- * - NUNCA escrever no socket na main thread: o Android joga
- *   NetworkOnMainThreadException. Toda a I/O de rede acontece em threads
- *   dedicadas; a main thread so enfileira o payload.
- * - Nao usar PrintWriter: ele engole IOException e esconde pipe quebrado.
- * - Campos de socket sao @Volatile e existe um "generation" para que uma
- *   thread antiga nao feche o socket de uma conexao nova.
- * - Todo erro vai para o logcat (tag NebulaPi), que o Termux consegue ler.
+ * Implementation care points:
+ * - NEVER write to the socket on the main thread: Android throws
+ *   NetworkOnMainThreadException. All network I/O happens on dedicated
+ *   threads; the main thread only queues the payload.
+ * - Do not use PrintWriter: it swallows IOException and hides a broken pipe.
+ * - Socket fields are @Volatile and there is a "generation" so that an old
+ *   thread does not close the socket of a new connection.
+ * - Every error goes to logcat (tag NebulaPi), which Termux can read.
  */
 class PiRpcClient(private val port: Int = PiSession.DEFAULT_PORT) {
 
     interface Listener {
         fun onConnected()
         fun onDisconnected(reason: String?)
-        /** Resposta de um comando RPC. [data] e null em caso de erro. */
+        /** Response to an RPC command. [data] is null on error. */
         fun onResponse(command: String, success: Boolean, data: JSONObject?, error: String?)
         fun onUserMessage(text: String)
         fun onTextDelta(text: String)
@@ -52,7 +52,7 @@ class PiRpcClient(private val port: Int = PiSession.DEFAULT_PORT) {
         fun onExtensionNotice(message: String)
         /** Saida de comando bash. */
         fun onBashOutput(chunk: String)
-        /** Erro de protocolo (prompt recusado, sem conexao, etc). */
+        /** Protocol error (prompt refused, no connection, etc). */
         fun onProtocolError(message: String)
     }
 
@@ -66,7 +66,7 @@ class PiRpcClient(private val port: Int = PiSession.DEFAULT_PORT) {
     @Volatile
     private var out: OutputStream? = null
 
-    /** invalida threads de conexao antigas */
+    /** invalidates threads from old connections */
     @Volatile
     private var generation = 0
 
@@ -80,12 +80,12 @@ class PiRpcClient(private val port: Int = PiSession.DEFAULT_PORT) {
     private var writerThread: Thread? = null
     private var listener: Listener? = null
 
-    /** Fila de escritas: a thread de escrita faz o I/O de verdade. */
+    /** Write queue: the write thread does the real I/O. */
     private val writeQueue = LinkedBlockingQueue<ByteArray>()
 
-    // ------------------------------------------------------------- conexao
+    // -------------------------------------------------------------- connection
 
-    /** Conecta no daemon. Não bloqueia: roda em thread própria. */
+    /** Connects to the daemon. Does not block: runs on its own thread. */
     fun connect(l: Listener) {
         listener = l
         val gen = ++generation
@@ -111,7 +111,7 @@ class PiRpcClient(private val port: Int = PiSession.DEFAULT_PORT) {
                     out = s.getOutputStream()
                 }
                 connected = true
-                Log.i(TAG, "conectado no daemon do Pi em $HOST:$port")
+                Log.i(TAG, "connected to the Pi daemon at $HOST:$port")
                 main.post { listener?.onConnected() }
                 request("get_state")
 
@@ -122,14 +122,14 @@ class PiRpcClient(private val port: Int = PiSession.DEFAULT_PORT) {
                     try {
                         handle(JSONObject(line))
                     } catch (e: Exception) {
-                        Log.e(TAG, "evento invalido do daemon: $line", e)
+                        Log.e(TAG, "invalid event from daemon: $line", e)
                     }
                 }
                 if (gen == generation && !closing) {
-                    main.post { listener?.onDisconnected("conexao fechada pelo daemon") }
+                    main.post { listener?.onDisconnected("connection closed by the daemon") }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "erro de conexao com o daemon do Pi", e)
+                Log.e(TAG, "connection error with the Pi daemon", e)
                 if (gen == generation && !closing) {
                     main.post { listener?.onDisconnected(describe(e)) }
                 }
@@ -154,8 +154,8 @@ class PiRpcClient(private val port: Int = PiSession.DEFAULT_PORT) {
     }
 
     /**
-     * Thread dedicada a escrita no socket. Toda a I/O de rede acontece aqui,
-     * nunca na main thread (NetworkOnMainThreadException).
+     * Thread dedicated to writing to the socket. All network I/O happens here,
+     * never on the main thread (NetworkOnMainThreadException).
      */
     private fun startWriter(gen: Int) {
         writerThread = Thread {
@@ -171,7 +171,7 @@ class PiRpcClient(private val port: Int = PiSession.DEFAULT_PORT) {
                 while (!sent && gen == generation && !closing && attempts < 40) {
                     val stream = synchronized(sendLock) { out }
                     if (stream == null) {
-                        // socket ainda nao pronto: espera e tenta de novo
+                        // socket not ready yet: wait and try again
                         attempts++
                         try {
                             Thread.sleep(50)
@@ -185,7 +185,7 @@ class PiRpcClient(private val port: Int = PiSession.DEFAULT_PORT) {
                         stream.flush()
                         sent = true
                     } catch (e: Exception) {
-                        Log.e(TAG, "falha ao escrever no daemon do Pi", e)
+                        Log.e(TAG, "failed to write to the Pi daemon", e)
                         main.post { listener?.onDisconnected(describe(e)) }
                         break
                     }
@@ -200,14 +200,14 @@ class PiRpcClient(private val port: Int = PiSession.DEFAULT_PORT) {
 
     fun isConnected(): Boolean = connected
 
-    // ------------------------------------------------------------- comandos
+    // ---------------------------------------------------------------- commands
 
     /**
-     * Envia um prompt.
-     * [images] e opcional: lista de (mimeType, base64 sem prefixo data:).
-     * [streamingBehavior] so vai quando o agente ja esta rodando: "steer"
-     * enfileira para a proxima volta, sem derrubar nem perder a mensagem.
-     * Retorna false se nem deu para enfileirar (sem conexao).
+     * Sends a prompt.
+     * [images] is optional: list of (mimeType, base64 without the data: prefix).
+     * [streamingBehavior] only goes out when the agent is already running: "steer"
+     * queues it for the next turn, without dropping or losing the message.
+     * Returns false if it could not even be queued (no connection).
      */
     fun sendPrompt(text: String, images: List<Pair<String, String>> = emptyList(), streamingBehavior: String? = null): Boolean {
         val payload = JSONObject()
@@ -229,10 +229,10 @@ class PiRpcClient(private val port: Int = PiSession.DEFAULT_PORT) {
         return send(payload)
     }
 
-    /** Requisicao generica com id, para correlacionar a resposta. */
+    /** Generic request with an id, to correlate the response. */
     fun request(type: String): String = request(type, null)
 
-    /** Requisicao generica com campos extras (ex.: {"level":"high"}). */
+    /** Generic request with extra fields (e.g. {"level":"high"}). */
     fun request(type: String, extras: JSONObject?): String {
         val id = "req-" + requestCounter.incrementAndGet()
         val payload = JSONObject()
@@ -249,7 +249,7 @@ class PiRpcClient(private val port: Int = PiSession.DEFAULT_PORT) {
         return id
     }
 
-    /** Responde a um dialogo de extensao com um valor (select/input/editor). */
+    /** Answers an extension dialog with a value (select/input/editor). */
     fun respondExtensionUi(id: String, value: String) {
         val payload = JSONObject()
         payload.put("type", "extension_ui_response")
@@ -258,7 +258,7 @@ class PiRpcClient(private val port: Int = PiSession.DEFAULT_PORT) {
         send(payload)
     }
 
-    /** Responde a um dialogo de extensao com confirmacao (confirm). */
+    /** Answers an extension dialog with a confirmation (confirm). */
     fun respondExtensionUiConfirmed(id: String, confirmed: Boolean) {
         val payload = JSONObject()
         payload.put("type", "extension_ui_response")
@@ -267,7 +267,7 @@ class PiRpcClient(private val port: Int = PiSession.DEFAULT_PORT) {
         send(payload)
     }
 
-    /** Cancela um dialogo de extensao. */
+    /** Cancels an extension dialog. */
     fun cancelExtensionUi(id: String) {
         val payload = JSONObject()
         payload.put("type", "extension_ui_response")
@@ -276,16 +276,16 @@ class PiRpcClient(private val port: Int = PiSession.DEFAULT_PORT) {
         send(payload)
     }
 
-    /** Enfileira um registro JSONL. Nao faz I/O de rede (thread main). */
+    /** Queues a JSONL record. Does no network I/O (main thread). */
     private fun send(payload: JSONObject): Boolean {
         if (!connected) {
-            Log.w(TAG, "sem conexao: comando descartado")
-            main.post { listener?.onProtocolError("sem conexao com o daemon (rode 'pi-rpc' no Termux)") }
+            Log.w(TAG, "no connection: command dropped")
+            main.post { listener?.onProtocolError("no connection to the daemon (run 'pi-rpc' in Termux)") }
             return false
         }
         val bytes = (payload.toString() + "\n").toByteArray(StandardCharsets.UTF_8)
         if (!writeQueue.offer(bytes)) {
-            main.post { listener?.onProtocolError("fila de escrita cheia") }
+            main.post { listener?.onProtocolError("write queue full") }
             return false
         }
         return true
@@ -396,7 +396,7 @@ class PiRpcClient(private val port: Int = PiSession.DEFAULT_PORT) {
             }
             "error" -> {
                 val reason = event.optString("error").ifEmpty { event.optString("reason") }
-                main.post { listener?.onProtocolError(reason.ifEmpty { "erro do provider" }) }
+                main.post { listener?.onProtocolError(reason.ifEmpty { "provider error" }) }
             }
         }
     }
@@ -412,9 +412,9 @@ class PiRpcClient(private val port: Int = PiSession.DEFAULT_PORT) {
     }
 
     /**
-     * Extrai previa de texto e imagens do `result` de um tool_execution_end.
-     * O formato e o mesmo dos blocos de mensagem: content:[{type,text|image}].
-     * Texto e truncado para nao lotar a conversa; imagens limitadas a 3.
+     * Extracts a text and image preview from the `result` of a tool_execution_end.
+     * The format is the same as message blocks: content:[{type,text|image}].
+     * Text is truncated so it does not flood the conversation; images limited to 3.
      */
     private fun extractToolResult(result: JSONObject?): Pair<String, List<String>> {
         if (result == null) return "" to emptyList()
@@ -451,7 +451,7 @@ class PiRpcClient(private val port: Int = PiSession.DEFAULT_PORT) {
         closing = true
         generation++
         writeQueue.clear()
-        // Fechar o socket tambem e I/O: fora da main thread.
+        // Closing the socket is also I/O: off the main thread.
         Thread {
             synchronized(sendLock) {
                 try {
@@ -474,10 +474,10 @@ class PiRpcClient(private val port: Int = PiSession.DEFAULT_PORT) {
     }
 
     private fun describe(e: Exception): String = when (e) {
-        is java.net.SocketTimeoutException -> "timeout conectando em $HOST:$port"
+        is java.net.SocketTimeoutException -> "timeout connecting to $HOST:$port"
         is java.net.ConnectException ->
-            "nao conectou em $HOST:$port - o daemon do Pi esta rodando? (no Termux: pi-rpc)"
-        is java.io.EOFException -> "o daemon fechou a conexao"
+            "did not connect to $HOST:$port - is the Pi daemon running? (in Termux: pi-rpc)"
+        is java.io.EOFException -> "the daemon closed the connection"
         else -> e.message ?: e.javaClass.simpleName
     }
 
@@ -486,9 +486,9 @@ class PiRpcClient(private val port: Int = PiSession.DEFAULT_PORT) {
         const val DEFAULT_PORT = 37877
         private const val CONNECT_TIMEOUT_MS = 4000
         private const val TAG = "NebulaPi"
-        /** Previa de texto de tool result (evita lotar a conversa com `read` grande). */
+        /** Text preview of a tool result (avoids flooding the conversation with a large `read`). */
         const val MAX_TOOL_TEXT = 800
-        /** Maximo de imagens por tool result (evita OOM com varias imagens). */
+        /** Max images per tool result (avoids OOM with several images). */
         const val MAX_TOOL_IMAGES = 3
     }
 }

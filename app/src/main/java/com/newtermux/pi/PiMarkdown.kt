@@ -67,12 +67,12 @@ private fun parseBlocks(src: String): List<MdBlock> {
     val out = mutableListOf<MdBlock>()
     val lines = src.split("\n")
     var i = 0
-    val para = StringBuilder()
+    val paragraph = StringBuilder()
 
     fun flushPara() {
-        if (para.isNotEmpty()) {
-            out.add(MdBlock.Paragraph(para.toString().trim()))
-            para.setLength(0)
+        if (paragraph.isNotEmpty()) {
+            out.add(MdBlock.Paragraph(paragraph.toString().trim()))
+            paragraph.setLength(0)
         }
     }
 
@@ -91,13 +91,13 @@ private fun parseBlocks(src: String): List<MdBlock> {
                 if (i < lines.size - 1) buf.append("\n")
                 i++
             }
-            // pula o ``` de fechamento (se houver)
+            // skip the closing ``` (if any)
             if (i < lines.size) i++ else i = lines.size
             out.add(MdBlock.Code(lang, buf.toString().trimEnd()))
             continue
         }
 
-        // linha em branco = separa paragrafos
+        // blank line = separates paragraphs
         if (line.isBlank()) {
             flushPara()
             i++
@@ -138,14 +138,14 @@ private fun parseBlocks(src: String): List<MdBlock> {
             continue
         }
 
-        // tabela: linhas com | (e/ou linha de --- com |)
+        // table: lines with | (and/or a --- line with |)
         if (line.trim().startsWith("|") && line.contains("|")) {
             flushPara()
             val rows = mutableListOf<String>()
             while (i < lines.size && lines[i].trim().contains("|") &&
                 (lines[i].trim().startsWith("|") || lines[i].trim().startsWith(":") || lines[i].contains("---"))
             ) {
-                // para de consumir tabela quando a linha nao parece tabela
+                // stop consuming the table when the line does not look like a table
                 val l = lines[i].trim()
                 if (l.isEmpty() || (!l.contains("|") && !l.contains("-"))) break
                 // linha separadora |---|---|
@@ -156,14 +156,14 @@ private fun parseBlocks(src: String): List<MdBlock> {
                 if (!l.contains("|")) break
                 rows.add(l)
                 i++
-                // se a proxima linha nao tem |, para
+                // if the next line has no |, stop
                 if (i < lines.size && !lines[i].contains("|")) break
             }
             if (rows.isNotEmpty()) out.add(MdBlock.Table(rows))
             continue
         }
 
-        // bullet: - * • + (com indent)
+        // bullet: - * • + (with indent)
         val bulletMatch = Regex("""^(\s*)[-*•+]\s+(.*)$""").matchEntire(line)
         if (bulletMatch != null) {
             flushPara()
@@ -173,7 +173,7 @@ private fun parseBlocks(src: String): List<MdBlock> {
             continue
         }
 
-        // ordered: 1. 1) (com indent)
+        // ordered: 1. 1) (with indent)
         val orderedMatch = Regex("""^(\s*)(\d+)[.)]\s+(.*)$""").matchEntire(line)
         if (orderedMatch != null) {
             flushPara()
@@ -183,9 +183,9 @@ private fun parseBlocks(src: String): List<MdBlock> {
             continue
         }
 
-        // indent code (4 espacos) isolado? trata como paragrafo normal pra nao quebrar listas
-        if (para.isNotEmpty()) para.append("\n")
-        para.append(line)
+        // indented code (4 spaces) alone? treat as a normal paragraph so lists do not break
+        if (paragraph.isNotEmpty()) paragraph.append("\n")
+        paragraph.append(line)
         i++
     }
     flushPara()
@@ -228,7 +228,7 @@ private fun AnnotatedString.Builder.parseRange(
         }
         // inline code `...`
         if (s[i] == '`') {
-            // `` duplo? trata como single tambem (bloco ``` ja foi separado)
+            // double ``? treat as single too (the ``` block was already split out)
             val close = s.indexOf('`', i + 1)
             if (close in (i + 1) until r) {
                 val inner = s.substring(i + 1, close)
@@ -340,7 +340,7 @@ private fun AnnotatedString.Builder.parseRange(
         // italic *...* ou _..._ (single)
         if (s[i] == '*' || s[i] == '_') {
             val delim = s[i]
-            // se for __ ou ** ja tratado acima; aqui garante single
+            // __ or ** already handled above; here we guarantee single
             if (i + 1 < r && s[i + 1] == delim) {
                 append(delim.toString())
                 i++
@@ -398,7 +398,7 @@ private fun findSingleClose(s: String, delim: Char, from: Int, r: Int): Int {
             continue
         }
         if (s[idx] == '`') {
-            // pula codigo inline pra nao confundir * dentro de codigo
+            // skip inline code so * inside code is not confused
             val c = s.indexOf('`', idx + 1)
             if (c in 0 until r) {
                 idx = c + 1
@@ -407,7 +407,7 @@ private fun findSingleClose(s: String, delim: Char, from: Int, r: Int): Int {
             return -1
         }
         if (s[idx] == delim) {
-            // se for duplo (** ou __), nao fecha single
+            // if it is double (** or __), do not close single
             if (idx + 1 < r && s[idx + 1] == delim) return -1
             if (idx - 1 >= from && s[idx - 1] == delim) {
                 idx++
@@ -421,7 +421,7 @@ private fun findSingleClose(s: String, delim: Char, from: Int, r: Int): Int {
 }
 
 // ---------------------------------------------------------------------------
-// Highlight de codigo (leve, sem dependencias)
+// Code highlighting (lightweight, no dependencies)
 // ---------------------------------------------------------------------------
 
 private val CODE_KEYWORDS = setOf(
@@ -445,7 +445,7 @@ private val CODE_KEYWORDS = setOf(
 private fun highlightCode(code: String, base: Color): AnnotatedString {
     val kw = Color(0xFFC792EA)
     val str = Color(0xFFC3E88D)
-    val com = Color(0xFF8A8A8A)
+    val commentColor = Color(0xFF8A8A8A)
     val num = Color(0xFFF78C6C)
     val fn = Color(0xFF82AAFF)
     val ann = Color(0xFFFFCB6B)
@@ -457,27 +457,27 @@ private fun highlightCode(code: String, base: Color): AnnotatedString {
             // comentarios //... e #...
             if (c == '/' && i + 1 < n && code[i + 1] == '/') {
                 val j = code.indexOf('\n', i).let { if (it == -1) n else it }
-                withStyle(SpanStyle(color = com, fontStyle = FontStyle.Italic)) { append(code.substring(i, j)) }
+                withStyle(SpanStyle(color = commentColor, fontStyle = FontStyle.Italic)) { append(code.substring(i, j)) }
                 i = j
                 continue
             }
             if (c == '#') {
                 val j = code.indexOf('\n', i).let { if (it == -1) n else it }
-                withStyle(SpanStyle(color = com, fontStyle = FontStyle.Italic)) { append(code.substring(i, j)) }
+                withStyle(SpanStyle(color = commentColor, fontStyle = FontStyle.Italic)) { append(code.substring(i, j)) }
                 i = j
                 continue
             }
             // bloco /* ... */
             if (c == '/' && i + 1 < n && code[i + 1] == '*') {
                 val j = code.indexOf("*/", i + 2).let { if (it == -1) n else it + 2 }
-                withStyle(SpanStyle(color = com, fontStyle = FontStyle.Italic)) { append(code.substring(i, j)) }
+                withStyle(SpanStyle(color = commentColor, fontStyle = FontStyle.Italic)) { append(code.substring(i, j)) }
                 i = j
                 continue
             }
             // html <!-- ... -->
             if (c == '<' && code.startsWith("!--", i + 1)) {
                 val j = code.indexOf("-->", i + 4).let { if (it == -1) n else it + 3 }
-                withStyle(SpanStyle(color = com, fontStyle = FontStyle.Italic)) { append(code.substring(i, j)) }
+                withStyle(SpanStyle(color = commentColor, fontStyle = FontStyle.Italic)) { append(code.substring(i, j)) }
                 i = j
                 continue
             }
@@ -543,7 +543,7 @@ private fun highlightCode(code: String, base: Color): AnnotatedString {
                 var j = i
                 while (j < n && (code[j].isLetterOrDigit() || code[j] == '_')) j++
                 val word = code.substring(i, j)
-                // olha se eh chamada de funcao: prox nao-espaco eh '('
+                // check for a function call: the next non-space is '('
                 var k = j
                 while (k < n && code[k].isWhitespace() && code[k] != '\n') k++
                 val isCall = k < n && code[k] == '('
@@ -566,10 +566,10 @@ private fun highlightCode(code: String, base: Color): AnnotatedString {
 // ---------------------------------------------------------------------------
 
 /**
- * Texto com markdown leve: **negrito** *italico* ~~riscado~~ ++sublinhado++
- * `codigo` ```bloco``` # titulos - listas > quote [link](url).
+ * Light markdown text: **bold** *italic* ~~strike~~ ++underline++
+ * `code` ```block``` # headings - lists > quote [link](url).
  *
- * Sem dependencias externas (roda no minSdk 21, sem baixar nada).
+ * No external dependencies (runs on minSdk 21, downloads nothing).
  */
 @Composable
 fun MarkdownText(
@@ -585,7 +585,7 @@ fun MarkdownText(
     val linkColor = cs.primary
     val baseCode = Color(0xFFD6DEEB)
 
-    // parse e barato pra mensagens normais; pra streaming longo, ainda ok (<8k chars)
+    // parsing is cheap for normal messages; for long streaming, still fine (<8k chars)
     val blocks = remember(text) { parseBlocks(text) }
 
     SelectionContainer {
@@ -731,7 +731,7 @@ private fun CodeBlockView(lang: String, code: String, baseCode: Color) {
                         copied = false
                     }
                 }) {
-                    Text(if (copied) "Copiado!" else "Copiar", fontSize = 11.sp)
+                    Text(if (copied) "Copied!" else "Copy", fontSize = 11.sp)
                 }
             }
             HorizontalDivider(color = Color(0xFF2A2A2A))
@@ -749,7 +749,7 @@ private fun CodeBlockView(lang: String, code: String, baseCode: Color) {
 }
 
 // ---------------------------------------------------------------------------
-// Texto mono com diff colorido (saida de tools / bash)
+// Mono text with colored diff (tool / bash output)
 // ---------------------------------------------------------------------------
 
 private fun isDiffLine(line: String): Boolean {
@@ -759,8 +759,8 @@ private fun isDiffLine(line: String): Boolean {
 }
 
 /**
- * Saida de tool/bash em monoespacado, com linhas de diff coloridas
- * (+ verde, - vermelho, @@ ciano) e expansao quando passa de [collapsedLines].
+ * Tool/bash output in monospace, with colored diff lines
+ * (+ green, - red, @@ cyan) and expansion when it exceeds [collapsedLines].
  */
 @Composable
 fun DiffAwareMonoText(
@@ -784,7 +784,7 @@ fun DiffAwareMonoText(
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 0.dp)
                 ) {
                     Text(
-                        if (expanded) "recolher" else "··· $hidden linhas a mais — expandir",
+                        if (expanded) "collapse" else "··· $hidden more lines — expand",
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace
                     )

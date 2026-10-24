@@ -10,17 +10,17 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 
 /**
- * Notificacao de "turno do Pi terminou".
+ * Notificacao de "Pi turn finished".
  *
- * Sem isso, se o painel do Pi estiver em background (ou o usuario estiver
- * mexendo em outro app), nao ha como saber que a resposta ficou pronta.
+ * Without it, if the Pi panel is in the background (or the user is
+ * in another app), there is no way to know the response is ready.
  */
 object PiNotify {
 
     private const val CHANNEL_ID = "nebula_pi"
     private const val NOTIFY_ID = 4201
 
-    /** Cria o canal (so faz sentido no Android 8+). */
+    /** Creates the channel (only meaningful on Android 8+). */
     fun ensureChannel(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
@@ -31,13 +31,13 @@ object PiNotify {
             "Nebula Pi",
             NotificationManager.IMPORTANCE_DEFAULT
         ).apply {
-            description = "Avisa quando o Pi termina de responder"
+            description = "Notifies when Pi finishes answering"
             enableVibration(true)
         }
         manager.createNotificationChannel(channel)
     }
 
-    /** Publica a notificacao. [summary] e um preview curto da resposta. */
+    /** Posts the notification. [summary] is a short preview of the response. */
     fun turnDone(context: Context, summary: String) {
         ensureChannel(context)
         val intent = Intent(context, PiActivity::class.java).apply {
@@ -49,7 +49,7 @@ object PiNotify {
             PendingIntent.FLAG_UPDATE_CURRENT
         }
         val pending = PendingIntent.getActivity(context, 0, intent, flags)
-        val text = summary.trim().ifEmpty { "Resposta pronta." }
+        val text = summary.trim().ifEmpty { "Response ready." }
         val short = if (text.length > 140) text.take(140).trimEnd() + "…" else text
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_notify_chat)
@@ -62,7 +62,7 @@ object PiNotify {
         try {
             NotificationManagerCompat.from(context).notify(NOTIFY_ID, notification)
         } catch (e: SecurityException) {
-            // Falta a permissao POST_NOTIFICATIONS: silencioso.
+            // POST_NOTIFICATIONS permission missing: silent.
         }
     }
 }
