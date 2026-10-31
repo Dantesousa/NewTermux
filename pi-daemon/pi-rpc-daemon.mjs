@@ -143,10 +143,22 @@ function startPi() {
     stdio: ['pipe', 'pipe', 'pipe'],
   });
 
+  // Pi speaks JSONL; buffer by line so get_available_models responses can be
+  // filtered before reaching the app. Non-JSON lines pass through untouched.
+  let piBuf = '';
   pi.stdout.on('data', (chunk) => {
-    // raw bytes: the client splits by LF (the protocol is JSONL)
-    for (const socket of clients) {
-      if (!socket.destroyed) socket.write(chunk);
+    piBuf += chunk.toString('utf8');
+    let idx;
+    let out = '';
+    while ((idx = piBuf.indexOf('\n')) >= 0) {
+      const line = piBuf.slice(0, idx);
+      piBuf = piBuf.slice(idx + 1);
+      out += filterPiLine(line) + '\n';
+    }
+    if (out) {
+      for (const socket of clients) {
+        if (!socket.destroyed) socket.write(out);
+      }
     }
   });
 
@@ -259,6 +271,12 @@ function handleNebulaCommand(socket, line) {
       case 'nebula_default_model':
         respond(true, defaultModel());
         return true;
+      case 'nebula_set_default_model': {
+        const r = setDefaultModel(rec.provider, rec.modelId);
+        if (r.ok) respond(true, defaultModel());
+        else respond(false, null, r.error);
+        return true;
+      }
       default:
         respond(false, null, 'comando desconhecido: ' + type);
         return true;
@@ -549,6 +567,34 @@ function defaultModel() {
     return { provider: '', modelId: '' };
   }
 }
+
+/**
+ * Writes the default model into ~/.pi/agent/settings.json (merged with the
+ * existing settings, so auth/other keys survive). Pi uses it as the model for
+ * brand new sessions, and the app re-reads it via nebula_default_model.
+ */
+function setDefaultModel(provider, modelId) {
+  provider = String(provider || '').trim();
+  modelId = String(modelId || '').trim();
+  if (!provider || !modelId) return { ok: false, error: 'provider and modelId are required' };
+  let settings = {};
+  try {
+    settings = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')) || {};
+    if (typeof settings !== 'object' || Array.isArray(settings)) settings = {};
+  } catch {
+    // first run: settings.json may not exist yet
+  }
+  settings.defaultProvider = provider;
+  settings.defaultModel = modelId;
+  try {
+    fs.mkdirSync(path.dirname(SETTINGS_FILE), { recursive: true });
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2) + '\n');
+  } catch (e) {
+    return { ok: false, error: 'could not write settings.json: ' + e.message };
+  }
+  log('default model set to', provider + '/' + modelId);
+  return { ok: true };
+}
 const PROVIDERS = [
   { id: 'opencode-go', name: 'OpenCode Go', env: 'OPENCODE_API_KEY', featured: true },
   { id: 'opencode', name: 'OpenCode Zen', env: 'OPENCODE_API_KEY', featured: true },
@@ -630,6 +676,76 @@ function deleteProvider(provider) {
   } catch (e) { log('error removing provider:', e.message); return false; }
 }
 
+// ------------------------------------------------------- model allowlist
+//
+// The app shows whatever Pi serves in get_available_models, and Pi serves
+// everything with a key — including expensive pay-per-token models. This
+// filter trims the list before it reaches the app (and refuses set_model
+// to anything outside it):
+//   - logfare: everything allowed (free gateway)
+//   - opencode*: only cost-free models + muse-spark-1.3-contributor +
+//     deepseek-v4.1-flash
+//   - anything else: blocked
+const OPENCODE_KEEP_IDS = new Set([
+  'muse-spark-1.3-contributor',
+  'deepseek-v4.1-flash',
+]);
+
+function isModelAllowed(m) {
+  const provider = String(m.provider || '');
+  const id = String(m.id || m.modelId || '');
+  if (!provider) return true; // unclassified: don't break, just log below
+  if (provider === 'logfare') return true;
+  if (provider.startsWith('opencode')) {
+    if (OPENCODE_KEEP_IDS.has(id)) return true;
+    const c = m.cost || {};
+    if (c.input === 0 && c.output === 0) return true;
+    if (/free/i.test(id) || /free/i.test(String(m.name || ''))) return true;
+    return false;
+  }
+  return false;
+}
+
+/** Filters one Pi->client line; only touches get_available_models responses. */
+function filterPiLine(line) {
+  if (!line.includes('get_available_models')) return line;
+  let rec;
+  try { rec = JSON.parse(line); } catch { return line; }
+  if (!rec || rec.type !== 'response' || rec.command !== 'get_available_models') return line;
+  if (!rec.success || !rec.data || !Array.isArray(rec.data.models)) return line;
+  rec.data.models = filterModelList(rec.data.models);
+  return JSON.stringify(rec);
+}
+
+/** True when a client->Pi line is a set_model to a blocked model. */
+function isBlockedSetModel(line) {
+  if (!line.includes('set_model')) return false;
+  let rec;
+  try { rec = JSON.parse(line); } catch { return false; }
+  if (!rec || rec.type !== 'set_model') return false;
+  let provider = String(rec.provider || '');
+  let id = String(rec.modelId || rec.model || '');
+  if (!provider && id.includes('/')) {
+    const parts = id.split('/');
+    provider = parts[0];
+    id = parts.slice(1).join('/');
+  }
+  return !isModelAllowed({ provider, id });
+}
+
+function filterModelList(models) {
+  const kept = [];
+  let dropped = 0;
+  for (const m of models) {
+    if (!m || typeof m !== 'object') continue;
+    if (!m.provider) log('model without provider, keeping:', m.id || '?');
+    if (isModelAllowed(m)) kept.push(m);
+    else dropped++;
+  }
+  if (dropped) log(`model filter: serving ${kept.length}/${models.length} (blocked ${dropped})`);
+  return kept;
+}
+
 // -------------------------------------------------------------------- server
 
 const server = net.createServer((socket) => {
@@ -646,6 +762,19 @@ const server = net.createServer((socket) => {
       if (!line.trim()) continue;
       // Daemon-owned commands (sessions) are answered here.
       if (handleNebulaCommand(socket, line)) continue;
+      // Refuse set_model to anything outside the allowlist (the model
+      // picker won't show them, this is the second barrier).
+      if (isBlockedSetModel(line)) {
+        log('blocked set_model:', line.slice(0, 120));
+        try {
+          const rec = JSON.parse(line);
+          socket.write(JSON.stringify({
+            id: rec.id, type: 'response', command: 'set_model',
+            success: false, error: 'model blocked by allowlist',
+          }) + '\n');
+        } catch {}
+        continue;
+      }
       if (!pi || !pi.stdin.writable) {
         log('command received with no pi running, dropping it');
         continue;

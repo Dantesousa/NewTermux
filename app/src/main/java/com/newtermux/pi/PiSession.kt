@@ -152,8 +152,8 @@ object PiSession {
     private var restoreDefaultPending = false
     /** Model picked while the session still had no file on disk. */
     private var pendingModelChoice: PiSessionModels.Choice? = null
-    /** Model from Pi's settings.json, used to reset new sessions. */
-    private var defaultModelChoice: PiSessionModels.Choice? = null
+    /** Model from Pi's settings.json, applied to every new session (observable for the /model star badge). */
+    var defaultModelChoice by mutableStateOf<PiSessionModels.Choice?>(null)
         private set
 
     /** Dialogo pedindo texto. */
@@ -192,6 +192,22 @@ object PiSession {
 
     /** Prompt (and attachments) that could not go out because the connection had died. */
     private var pendingPrompt: Pair<String, List<Pair<String, String>>>? = null
+
+    /**
+     * True right after a reconnect: the conversation reload that follows decides
+     * whether the pending prompt still needs to go out (pi may have already received
+     * it before the connection died, and resending would duplicate the turn).
+     */
+    private var resyncAfterConnect = false
+
+    /**
+     * True when the connection dropped in the middle of a turn: the UI is missing whatever
+     * pi emitted meanwhile. The next settled turn triggers one reload from the session file.
+     */
+    private var gapDuringTurn = false
+
+    /** Set while a get_messages belongs to a gap repair, so it reloads without a notice. */
+    private var reloadAfterGap = false
 
     /** Daemon auto-start: how many times we already tried to start it on our own. */
     private var autoStartTries = 0
@@ -235,12 +251,11 @@ object PiSession {
             client.request("get_available_thinking_levels")
             client.request("nebula_engines")
             client.request("nebula_providers")
-            pendingPrompt?.let { (text, pendingImages) ->
-                pendingPrompt = null
-                Log.i(TAG, "reenviando prompt pendente")
-                busy = true
-                client.sendPrompt(text, pendingImages)
-            }
+            // Resync: the connection may have died mid-turn, and everything pi emitted
+            // while we were gone never reached the UI. Reloading the session fills the
+            // gap; the pending prompt (if any) only goes out if pi never got it.
+            resyncAfterConnect = true
+            client.request("get_messages")
         }
 
         override fun onDisconnected(reason: String?) {
@@ -261,6 +276,8 @@ object PiSession {
         }
 
         override fun onTextDelta(text: String) {
+            busy = true
+            gapDuringTurn = false
             if (assistantIndex < 0 || assistantIndex >= items.size) {
                 assistantBuffer.setLength(0)
                 items.add(PiItem.Assistant(""))
@@ -282,6 +299,7 @@ object PiSession {
         }
 
         override fun onToolStart(name: String) {
+            busy = true
             items.add(PiItem.Tool(name, running = true))
             toolIndex = items.size - 1
         }
@@ -317,13 +335,30 @@ object PiSession {
                         images.ifEmpty { current.images }
                     )
                 }
+            } else if (text.isNotBlank() || images.isNotEmpty()) {
+                // No placeholder: streaming deltas never arrived (the connection dropped
+                // mid-turn and the conversation was reloaded). Without this branch the
+                // finished response was silently dropped — the user got the notification
+                // and an empty screen.
+                items.add(PiItem.Assistant(text, images))
+            } else if (gapDuringTurn && text.isBlank()) {
+                // Nothing usable came in: fall back to the session on disk below.
+                client.request("get_messages")
             }
+            if (text.isNotBlank()) lastAssistantText = text
             assistantIndex = -1
             thinkingIndex = -1
         }
 
         override fun onSettled() {
             busy = false
+            // The turn ran while the connection was down: the UI may be missing part of
+            // it. Reloading the session once makes the screen match what pi really has.
+            if (gapDuringTurn) {
+                gapDuringTurn = false
+                reloadAfterGap = true
+                client.request("get_messages")
+            }
             // Notifies outside the app: if the panel is in the background, the user
             // needs to know the response is ready.
             val ctx = appContext
@@ -370,6 +405,7 @@ object PiSession {
     /** Disconnection with daemon auto-start (avoids type recursion in the listener). */
     private fun handleDisconnect(reason: String?) {
         connected = false
+        if (busy) gapDuringTurn = true
         busy = false
         val msg: String = reason ?: "disconnected"
         val ctx: android.content.Context? = appContext
@@ -447,6 +483,14 @@ object PiSession {
                     defaultModelChoice = PiSessionModels.Choice(provider, modelId)
                 }
             }
+            "nebula_set_default_model" -> {
+                val provider = data?.optString("provider").orEmpty()
+                val modelId = data?.optString("modelId").orEmpty()
+                if (provider.isNotEmpty() && modelId.isNotEmpty()) {
+                    defaultModelChoice = PiSessionModels.Choice(provider, modelId)
+                    items.add(PiItem.Notice("Default model set: $modelId", error = false))
+                }
+            }
             "nebula_sessions" -> {
                 val list = mutableListOf<PiSessionInfo>()
                 val arr = data?.optJSONArray("sessions")
@@ -487,7 +531,23 @@ object PiSession {
                     client.request("get_state")
                 }
             }
-            "get_messages" -> reloadMessages(data)
+            "get_messages" -> {
+                val resync = resyncAfterConnect
+                resyncAfterConnect = false
+                val gapRepair = reloadAfterGap
+                reloadAfterGap = false
+                reloadMessages(data, fromReconnect = resync, silent = gapRepair)
+                if (resync) {
+                    val pending = pendingPrompt
+                    if (pending != null && !historyHasMessage(data, pending.first)) {
+                        Log.i(TAG, "reenviando prompt pendente (nao foi entregue antes da queda)")
+                        busy = true
+                        client.sendPrompt(pending.first, pending.second)
+                    } else {
+                        pendingPrompt = null
+                    }
+                }
+            }
             "get_commands" -> {
                 val found = mutableListOf<PiCommand>()
                 val arr = data?.optJSONArray("commands")
@@ -629,8 +689,8 @@ object PiSession {
         }
     }
 
-    /** Reloads the conversation after switching sessions. */
-    private fun reloadMessages(data: JSONObject?) {
+    /** Reloads the conversation after switching sessions (or after a reconnect resync). */
+    private fun reloadMessages(data: JSONObject?, fromReconnect: Boolean = false, silent: Boolean = false) {
         val arr = data?.optJSONArray("messages") ?: return
         clear()
         for (i in 0 until arr.length()) {
@@ -664,7 +724,27 @@ object PiSession {
                 }
             }
         }
-        items.add(PiItem.Notice("Session loaded", error = false))
+        if (silent) return
+        if (fromReconnect) {
+            items.add(PiItem.Notice("Reconnected — conversation reloaded", error = false))
+        } else {
+            items.add(PiItem.Notice("Session loaded", error = false))
+        }
+    }
+
+    /** True when the reloaded history already contains the given user message. */
+    private fun historyHasMessage(data: JSONObject?, text: String): Boolean {
+        if (text.isBlank()) return true
+        val arr = data?.optJSONArray("messages") ?: return false
+        val firstLine = text.lineSequence().first().trim()
+        for (i in 0 until arr.length()) {
+            val m = arr.optJSONObject(i) ?: continue
+            if (m.optString("role") != "user") continue
+            val (t, _) = extractContent(m)
+            if (t.trim() == text.trim()) return true
+            if (firstLine.isNotEmpty() && t.contains(firstLine)) return true
+        }
+        return false
     }
 
     /** Extracts text and images from a message content. */
@@ -814,6 +894,17 @@ object PiSession {
                 )
             }
         }
+    }
+
+    /** Model from settings.json, applied to every brand new session. Exposed for the star badge in /model. */
+    fun currentDefaultModel(): PiSessionModels.Choice? = defaultModelChoice
+
+    /** Writes the default model into pi's settings.json (survives app/device restarts). */
+    fun setDefaultModel(choice: PiModelChoice) {
+        client.request(
+            "nebula_set_default_model",
+            JSONObject().put("provider", choice.provider).put("modelId", choice.id)
+        )
     }
 
     fun chooseThinking(level: String) {

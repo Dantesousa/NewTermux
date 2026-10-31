@@ -61,6 +61,7 @@ import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -839,19 +840,43 @@ private fun ModelSheet() {
                 }
             }
             items(models) { m ->
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { PiSession.chooseModel(m) }
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                val def = PiSession.currentDefaultModel()
+                val isDefault = def != null && def.provider == m.provider && def.modelId == m.id
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text(m.name, fontSize = 14.sp)
-                    Text(
-                        m.provider + " / " + m.id,
-                        fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { PiSession.chooseModel(m) }
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                    ) {
+                        Text(
+                            m.name + if (isDefault) "  \u2022 default" else "",
+                            fontSize = 14.sp,
+                            fontWeight = if (isDefault) FontWeight.SemiBold else FontWeight.Normal
+                        )
+                        Text(
+                            m.provider + " / " + m.id,
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    // Star: turn this model into the default for every NEW session.
+                    IconButton(
+                        onClick = { PiSession.setDefaultModel(m) },
+                        enabled = !isDefault
+                    ) {
+                        Icon(
+                            Icons.Filled.Star,
+                            contentDescription = "Set as default model",
+                            modifier = Modifier.size(20.dp),
+                            tint = if (isDefault) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
             item { Spacer(Modifier.height(24.dp)) }
